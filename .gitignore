@@ -1,0 +1,11 @@
+*.DS_Store
+*.pyc
+*.egg-info
+.idea/
+.vscode/
+.vs/
+
+xvfb.log
+bin
+
+trained_models

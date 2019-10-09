@@ -9,6 +9,7 @@ using the keyboard arrows.
 import sys
 import argparse
 import pyglet
+from skimage.io import imsave, imread
 from pyglet.window import key
 import numpy as np
 import gym
@@ -27,6 +28,7 @@ parser.add_argument('--draw-bbox', action='store_true', help='draw collision det
 parser.add_argument('--domain-rand', action='store_true', help='enable domain randomization')
 parser.add_argument('--frame-skip', default=1, type=int, help='number of frames to skip')
 parser.add_argument('--seed', default=1, type=int, help='seed')
+parser.add_argument('--annotated', default=False, action='store_true', help='start the simulation with annotated texture segments')
 args = parser.parse_args()
 
 if args.env_name and args.env_name.find('Duckietown') != -1:
@@ -38,12 +40,14 @@ if args.env_name and args.env_name.find('Duckietown') != -1:
         domain_rand = args.domain_rand,
         frame_skip = args.frame_skip,
         distortion = args.distortion,
+        annotated = args.annotated,
     )
 else:
     env = gym.make(args.env_name)
 
 env.reset()
 env.render()
+
 
 @env.unwrapped.window.event
 def on_key_press(symbol, modifiers):
@@ -62,12 +66,22 @@ def on_key_press(symbol, modifiers):
         env.close()
         sys.exit(0)
 
+    elif symbol == key.A:
+        print('ANNOTATING')
+        env.annotated = not env.annotated
+
     # Take a screenshot
     # UNCOMMENT IF NEEDED - Skimage dependency
-    # elif symbol == key.RETURN:
-    #     print('saving screenshot')
-    #     img = env.render('rgb_array')
-    #     save_img('screenshot.png', img)
+    elif symbol == key.RETURN:
+        print('saving screenshot')
+        img = env.render('rgb_array')
+        imsave('screenshot.png', np.array(img, dtype=np.uint8))
+        if env.annotated:
+            env.annotated = False
+            img = env.render('rgb_array')
+            imsave('screenshot_a.png', np.array(img, dtype=np.uint8))
+            env.annotated = True
+
 
 # Register a keyboard handler
 key_handler = key.KeyStateHandler()
@@ -97,13 +111,13 @@ def update(dt):
         action *= 1.5
 
     obs, reward, done, info = env.step(action)
-    print('step_count = %s, reward=%.3f' % (env.unwrapped.step_count, reward))
+    # print('step_count = %s, reward=%.3f' % (env.unwrapped.step_count, reward))
 
-    if key_handler[key.RETURN]:
-        from PIL import Image
-        im = Image.fromarray(obs)
-
-        im.save('screen.png')
+    # if key_handler[key.RETURN]:
+    #     from PIL import Image
+    #     im = Image.fromarray(obs)
+    #
+    #     im.save('screen.png')
 
     if done:
         print('done!')
@@ -111,6 +125,7 @@ def update(dt):
         env.render()
 
     env.render()
+
 
 pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
 

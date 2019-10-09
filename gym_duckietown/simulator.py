@@ -158,6 +158,7 @@ class Simulator(gym.Env):
             seed=None,
             distortion=False,
             randomize_maps_on_reset=False,
+            annotated=False,
     ):
         """
 
@@ -177,6 +178,7 @@ class Simulator(gym.Env):
         :param seed:
         :param distortion: If true, distorts the image with fish-eye approximation
         :param randomize_maps_on_reset: If true, randomizes the map on reset (Slows down training)
+        :param annotated: If true, draws the environment with semantic segmentation
         """
         # first initialize the RNG
         self.seed_value = seed
@@ -304,6 +306,8 @@ class Simulator(gym.Env):
             import os
             self.map_names = os.listdir('maps')
             self.map_names = [mapfile.replace('.yaml', '') for mapfile in self.map_names]
+
+        self.annotated = annotated
 
         # Initialize the state
         self.reset()
@@ -1414,7 +1418,7 @@ class Simulator(gym.Env):
         # Note: we add a bit of noise to the camera position for data augmentation
         pos = self.cur_pos
         angle = self.cur_angle
-        logger.info('Pos: %s angle %s' % (self.cur_pos, self.cur_angle))
+        # logger.info('Pos: %s angle %s' % (self.cur_pos, self.cur_angle))
         if self.domain_rand:
             pos = pos + self.randomization_settings['camera_noise']
             
@@ -1468,8 +1472,8 @@ class Simulator(gym.Env):
         self.ground_vlist.draw(gl.GL_QUADS)
         gl.glPopMatrix()
 
-        # Draw the ground/noise triangles
-        self.tri_vlist.draw(gl.GL_TRIANGLES)
+        # # Draw the ground/noise triangles
+        # self.tri_vlist.draw(gl.GL_TRIANGLES)
 
         # Draw the road quads
         gl.glEnable(gl.GL_TEXTURE_2D)
@@ -1488,8 +1492,21 @@ class Simulator(gym.Env):
                 # kind = tile['kind']
                 angle = tile['angle']
                 color = tile['color']
-                texture = tile['texture']
 
+                if not self.annotated:
+                    if tile['texture'][1]:
+                        tile['texture'][1].unbind()
+                    tile['texture'][0].bind() # get the base texture
+                else:
+                    # based of the agent's relative angle to the tile, load the correct texture
+                    # use fallback, if annotated version doesn't exist
+                    # angle_deg = ((angle - self.cur_angle) * 180.0 / math.pi) % 360
+                    # if 90 <= angle_deg <= 270:
+                    #     texture = tile['texture'][1] if tile['texture'][1] else tile['texture'][0]
+                    # else:
+                    #     texture = tile['texture'][2] if tile['texture'][2] else tile['texture'][0]
+                    tile['texture'][0].unbind()
+                    tile['texture'][1].bind() if tile['texture'][1] else tile['texture'][0].bind()
                 gl.glColor3f(*color)
 
                 gl.glPushMatrix()
@@ -1497,7 +1514,7 @@ class Simulator(gym.Env):
                 gl.glRotatef(angle * 90, 0, 1, 0)
 
                 # Bind the appropriate texture
-                texture.bind()
+                # texture.bind()
 
                 self.road_vlist.draw(gl.GL_QUADS)
                 gl.glPopMatrix()
@@ -1671,7 +1688,7 @@ class Simulator(gym.Env):
                 width=WINDOW_WIDTH,
                 height=WINDOW_HEIGHT
         )
-
+        # TODO: correct angle text
         # Display position/state information
         if mode != "free_cam":
             x, y, z = self.cur_pos

@@ -29,22 +29,29 @@ class Texture(object):
         # Get an inventory of the existing texture files
         if len(paths) == 0:
             for i in range(1, 10):
-                path = get_file_path('textures', '%s_%d' % (tex_name, i), 'png')
+                path = get_file_path('textures', '%s_%d' % (tex_name, i), 'png') # get the base texture version
                 if not os.path.exists(path):
                     break
-                paths.append(path)
+                paths.append((path,))
+                path_cv = get_file_path('textures', '%s_%d_cv' % (tex_name, i), 'png') # get the cv annotated texture version
+                path_ccv = get_file_path('textures', '%s_%d_ccv' % (tex_name, i), 'png') # get the ccv annotated texture version
+                if os.path.exists(path_cv) and os.path.exists(path_ccv):
+                    paths[-1] += (path_cv, path_ccv,)
 
         assert len(paths) > 0, 'failed to load textures for name "%s"' % tex_name
 
         if rng:
-            path_idx = rng.randint(0, len(paths))
-            path = paths[path_idx]
-        else:
-            path = paths[0]
+            rng.shuffle(paths)
+        for path in paths:
+            if path not in self.tex_cache:
+                self.tex_cache[path] = [Texture(load_texture(version)) for version in path]
+                # if just the base texture is present
+                if len(self.tex_cache[path]) == 1:
+                    # set the values for the missing ones to None
+                    self.tex_cache[path].extend([None, None])
 
-        if path not in self.tex_cache:
-            self.tex_cache[path] = Texture(load_texture(path))
-
+        # return the texture array [base_texture, cv_texture, ccv_texture]
+        # base texture always exists, cv, ccv can be None if not exists
         return self.tex_cache[path]
 
     def __init__(self, tex):
@@ -54,6 +61,12 @@ class Texture(object):
     def bind(self):
         from pyglet import gl
         gl.glBindTexture(self.tex.target, self.tex.id)
+
+    def unbind(self):
+        from pyglet import gl
+        gl.glBindTexture(self.tex.target, 0)
+        # TODO: potential memory leak
+        # gl.glDeleteTextures(1, self.tex.id)
 
 def load_texture(tex_path):
     from pyglet import gl

@@ -7,6 +7,6 @@ tiles:
 - [asphalt , curve_left/S , straight/E, straight/E, curve_left/E, asphalt]
 - [asphalt , asphalt , asphalt , asphalt , asphalt , asphalt]
 
-# start_tile: [4, 3]
+start_tile: [1, 2]
 
 tile_size: 0.585

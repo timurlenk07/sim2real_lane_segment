@@ -16,6 +16,7 @@ import gym
 import gym_duckietown
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.wrappers import UndistortWrapper
+import cv2
 
 # from experiments.utils import save_img
 
@@ -48,6 +49,10 @@ else:
 env.reset()
 env.render()
 
+hasVideoStarted = False
+video_orig = None
+video_annot = None
+recordingInProgress = False
 
 @env.unwrapped.window.event
 def on_key_press(symbol, modifiers):
@@ -56,6 +61,7 @@ def on_key_press(symbol, modifiers):
     control the simulation
     """
 
+    global recordingInProgress
     if symbol == key.BACKSPACE or symbol == key.SLASH:
         print('RESET')
         env.reset()
@@ -64,6 +70,9 @@ def on_key_press(symbol, modifiers):
         env.unwrapped.cam_angle[0] = 0
     elif symbol == key.ESCAPE:
         env.close()
+        if hasVideoStarted:
+            video_orig.release()
+            video_annot.release()
         sys.exit(0)
 
     elif symbol == key.A:
@@ -73,14 +82,12 @@ def on_key_press(symbol, modifiers):
     # Take a screenshot
     # UNCOMMENT IF NEEDED - Skimage dependency
     elif symbol == key.RETURN:
-        print('saving screenshot')
-        img = env.render('rgb_array')
-        imsave('screenshot.png', np.array(img, dtype=np.uint8))
-        if env.annotated:
-            env.annotated = False
-            img = env.render('rgb_array')
-            imsave('screenshot_a.png', np.array(img, dtype=np.uint8))
-            env.annotated = True
+        if recordingInProgress:
+            print('stop recording')
+        else:
+            print('start recording')
+        recordingInProgress = not recordingInProgress
+        
 
 
 # Register a keyboard handler
@@ -92,6 +99,8 @@ def update(dt):
     This function is called at every frame to handle
     movement/stepping and redrawing
     """
+
+    global recordingInProgress, hasVideoStarted, video_orig, video_annot
 
     action = np.array([0.0, 0.0])
 
@@ -118,6 +127,33 @@ def update(dt):
     #     im = Image.fromarray(obs)
     #
     #     im.save('screen.png')
+    
+    if recordingInProgress:
+        annotated_state = env.annotated
+        env.annotated = False
+        img = env.render('rgb_array')
+        if not hasVideoStarted:
+            print(img.shape)
+            height, width, layers = img.shape
+            video_name_orig = 'testvideo_orig.avi'
+            video_name_annot = 'testvideo_annot.avi'
+            video_orig = cv2.VideoWriter(video_name_orig, cv2.VideoWriter_fourcc(*'FFV1'), 20, (width,height))
+            video_annot = cv2.VideoWriter(video_name_annot, cv2.VideoWriter_fourcc(*'FFV1'), 20, (width,height))
+            hasVideoStarted = True
+        
+        #imsave('screenshot.png', np.array(img, dtype=np.uint8))
+        video_orig.write(img)
+        
+        env.annotated = True
+        img = env.render('rgb_array')
+        video_annot.write(img)
+        
+        env.annotated = annotated_state
+        #if env.annotated:
+            #env.annotated = False
+            #img = env.render('rgb_array')
+            #imsave('screenshot_a.png', np.array(img, dtype=np.uint8))
+            #env.annotated = True
 
     if done:
         print('done!')
@@ -131,5 +167,9 @@ pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
 
 # Enter main event loop
 pyglet.app.run()
+
+if hasVideoStarted:
+    video_orig.release()
+    video_annot.release()
 
 env.close()

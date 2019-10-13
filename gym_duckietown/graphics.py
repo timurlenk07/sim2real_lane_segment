@@ -26,33 +26,43 @@ class Texture(object):
     def get(self, tex_name, rng=None):
         paths = self.tex_paths.get(tex_name, [])
 
+        # texture naming scheme:
+        # <name>_<variant>[_<version>].png
+
         # Get an inventory of the existing texture files
         if len(paths) == 0:
             for i in range(1, 10):
-                path = get_file_path('textures', '%s_%d' % (tex_name, i), 'png') # get the base texture version
+                path = get_file_path('textures', '%s_%d' % (tex_name, i), 'png') # get the base texture
                 if not os.path.exists(path):
-                    break
-                paths.append((path,))
-                path_cv = get_file_path('textures', '%s_%d_cv' % (tex_name, i), 'png') # get the cv annotated texture version
-                path_ccv = get_file_path('textures', '%s_%d_ccv' % (tex_name, i), 'png') # get the ccv annotated texture version
-                if os.path.exists(path_cv) and os.path.exists(path_ccv):
-                    paths[-1] += (path_cv, path_ccv,)
+                    continue
+                paths.append([path])
+                # try to get the annotated versions as well
+                path_cv = get_file_path('textures', '%s_%d_cv' % (tex_name, i), 'png') # get the cv annotated texture
+                if os.path.exists(path_cv):
+                    paths[-1].append(path_cv)
+                else:
+                    paths[-1].append(None)
+                path_ccv = get_file_path('textures', '%s_%d_ccv' % (tex_name, i), 'png') # get the ccv annotated texture
+                if os.path.exists(path_ccv):
+                    paths[-1].append(path_ccv)
+                else:
+                    paths[-1].append(None)
 
         assert len(paths) > 0, 'failed to load textures for name "%s"' % tex_name
 
+        # make a cache of the loaded objects
+        if tex_name not in self.tex_cache.keys():
+            self.tex_cache[tex_name] = []
+            for variants in paths:
+                self.tex_cache[tex_name].append([Texture(load_texture(version)) if version is not None else None for version in variants])
+
+        default_texture_idx = 0
         if rng:
-            rng.shuffle(paths)
-        for path in paths:
-            if path not in self.tex_cache:
-                self.tex_cache[path] = [Texture(load_texture(version)) for version in path]
-                # if just the base texture is present
-                if len(self.tex_cache[path]) == 1:
-                    # set the values for the missing ones to None
-                    self.tex_cache[path].extend([None, None])
+            default_texture_idx = rng.randint(0, len(self.tex_cache[tex_name]))
 
         # return the texture array [base_texture, cv_texture, ccv_texture]
         # base texture always exists, cv, ccv can be None if not exists
-        return self.tex_cache[path]
+        return self.tex_cache[tex_name][default_texture_idx]
 
     def __init__(self, tex):
         assert not isinstance(tex, str)
@@ -62,11 +72,11 @@ class Texture(object):
         from pyglet import gl
         gl.glBindTexture(self.tex.target, self.tex.id)
 
-    def unbind(self):
-        from pyglet import gl
-        gl.glBindTexture(self.tex.target, 0)
-        # TODO: potential memory leak
-        # gl.glDeleteTextures(1, self.tex.id)
+    # def unbind(self):
+    #     from pyglet import gl
+    #     gl.glBindTexture(self.tex.target, 0)
+    #     # TODO: potential memory leak
+    #     # gl.glDeleteTextures(1, self.tex.id)
 
 def load_texture(tex_path):
     from pyglet import gl

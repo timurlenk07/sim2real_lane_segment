@@ -20,6 +20,9 @@ import cv2
 
 # from experiments.utils import save_img
 
+pyglet.options['debug_gl'] = False
+pyglet.options['vsync'] = False
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--env-name', default='Duckietown-loop-v0')
 parser.add_argument('--map-name', default='loop')
@@ -29,7 +32,7 @@ parser.add_argument('--draw-bbox', action='store_true', help='draw collision det
 parser.add_argument('--domain-rand', action='store_true', help='enable domain randomization')
 parser.add_argument('--frame-skip', default=1, type=int, help='number of frames to skip')
 parser.add_argument('--seed', default=1, type=int, help='seed')
-parser.add_argument('--annotated', default=False, action='store_true', help='start the simulation with annotated texture segments')
+parser.add_argument('--annotated', default=0, action='store_const', const=0, help='start the simulation with annotated texture segments')
 args = parser.parse_args()
 
 if args.env_name and args.env_name.find('Duckietown') != -1:
@@ -76,8 +79,8 @@ def on_key_press(symbol, modifiers):
         sys.exit(0)
 
     elif symbol == key.A:
-        print('ANNOTATING')
-        env.annotated = not env.annotated
+        print('Annotation mode set to: {}'.format(env.annotated+1))
+        env.annotated = (env.annotated + 1) % 3
 
     # Take a screenshot
     # UNCOMMENT IF NEEDED - Skimage dependency

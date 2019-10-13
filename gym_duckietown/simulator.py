@@ -158,7 +158,7 @@ class Simulator(gym.Env):
             seed=None,
             distortion=False,
             randomize_maps_on_reset=False,
-            annotated=False,
+            annotated=0,
     ):
         """
 
@@ -178,7 +178,7 @@ class Simulator(gym.Env):
         :param seed:
         :param distortion: If true, distorts the image with fish-eye approximation
         :param randomize_maps_on_reset: If true, randomizes the map on reset (Slows down training)
-        :param annotated: If true, draws the environment with semantic segmentation
+        :param annotated: Tile semantic segmentation mode
         """
         # first initialize the RNG
         self.seed_value = seed
@@ -1224,7 +1224,7 @@ class Simulator(gym.Env):
                                                    self.wheel_dist,
                                                    wheelVels=self.wheelVels,
                                                    deltaTime=delta_time)
-        self.step_count += 1
+        # self.step_count += 1
         self.timestamp += delta_time
 
         self.last_action = action
@@ -1493,20 +1493,13 @@ class Simulator(gym.Env):
                 angle = tile['angle']
                 color = tile['color']
 
-                if not self.annotated:
-                    if tile['texture'][1]:
-                        tile['texture'][1].unbind()
-                    tile['texture'][0].bind() # get the base texture
-                else:
-                    # based of the agent's relative angle to the tile, load the correct texture
-                    # use fallback, if annotated version doesn't exist
-                    # angle_deg = ((angle - self.cur_angle) * 180.0 / math.pi) % 360
-                    # if 90 <= angle_deg <= 270:
-                    #     texture = tile['texture'][1] if tile['texture'][1] else tile['texture'][0]
-                    # else:
-                    #     texture = tile['texture'][2] if tile['texture'][2] else tile['texture'][0]
-                    tile['texture'][0].unbind()
+                if self.annotated == 0:
+                    tile['texture'][0].bind()   # get the base texture
+                elif self.annotated == 1:
                     tile['texture'][1].bind() if tile['texture'][1] else tile['texture'][0].bind()
+                elif self.annotated == 2:
+                    tile['texture'][2].bind() if tile['texture'][2] else tile['texture'][0].bind()
+
                 gl.glColor3f(*color)
 
                 gl.glPushMatrix()

@@ -159,6 +159,7 @@ class Simulator(gym.Env):
             distortion=False,
             randomize_maps_on_reset=False,
             annotated=0,
+            recording_time=0.0,
     ):
         """
 
@@ -259,6 +260,17 @@ class Simulator(gym.Env):
                 y=WINDOW_HEIGHT - 19
         )
 
+        self.recording_label = pyglet.text.Label(
+                font_name="Arial",
+                font_size=14,
+                x=WINDOW_WIDTH - 8,
+                y=8,
+                anchor_x="right",
+                anchor_y="bottom"
+        )
+        self.recording_label.color = (0, 255, 0, 255)
+        self.recording_label.bold = True
+
         # Create a frame buffer object for the observation
         self.multi_fbo, self.final_fbo = create_frame_buffers(
                 self.camera_width,
@@ -308,6 +320,7 @@ class Simulator(gym.Env):
             self.map_names = [mapfile.replace('.yaml', '') for mapfile in self.map_names]
 
         self.annotated = annotated
+        self.recording_time = recording_time
 
         # Initialize the state
         self.reset()
@@ -1692,6 +1705,12 @@ class Simulator(gym.Env):
                 self.speed
             )
             self.text_label.draw()
+
+            if self.recording_time > 0:
+                self.recording_label.text = "Recording: {:.2f}".format(self.recording_time)
+                self.recording_label.draw()
+            else:
+                self.recording_label.delete()
 
         # Force execution of queued commands
         gl.glFlush()

@@ -17,6 +17,8 @@ import gym_duckietown
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.wrappers import UndistortWrapper
 import cv2
+from threading import Thread
+from gym_duckietown.recorder import Recorder
 
 # from experiments.utils import save_img
 
@@ -52,10 +54,10 @@ else:
 env.reset()
 env.render()
 
-hasVideoStarted = False
-video_orig = None
-video_annot = None
 recordingInProgress = False
+recorder_orig = Recorder()
+recorder_annot = Recorder()
+
 
 @env.unwrapped.window.event
 def on_key_press(symbol, modifiers):
@@ -73,20 +75,21 @@ def on_key_press(symbol, modifiers):
         env.unwrapped.cam_angle[0] = 0
     elif symbol == key.ESCAPE:
         env.close()
-        if hasVideoStarted:
-            video_orig.release()
-            video_annot.release()
         sys.exit(0)
 
     elif symbol == key.A:
         print('Annotation mode set to: {}'.format(env.annotated+1))
         env.annotated = (env.annotated + 1) % 3
 
-    # Take a screenshot
-    # UNCOMMENT IF NEEDED - Skimage dependency
+    # Start/Stop video recording
     elif symbol == key.RETURN:
         if recordingInProgress:
             print('stop recording')
+            t_orig = Thread(target=recorder_orig.save, kwargs={"filename":"orig"})
+            t_annot = Thread(target=recorder_annot.save, kwargs={"filename":"annot"})
+            t_orig.start()
+            t_annot.start()
+            env.recording_time = 0.0
         else:
             print('start recording')
         recordingInProgress = not recordingInProgress
@@ -130,33 +133,37 @@ def update(dt):
     #     im = Image.fromarray(obs)
     #
     #     im.save('screen.png')
-    
+
+    # record the original and annotated frames
     if recordingInProgress:
-        annotated_state = env.annotated
-        env.annotated = False
-        img = env.render('rgb_array')
-        if not hasVideoStarted:
-            print(img.shape)
-            height, width, layers = img.shape
-            video_name_orig = 'testvideo_orig.avi'
-            video_name_annot = 'testvideo_annot.avi'
-            video_orig = cv2.VideoWriter(video_name_orig, cv2.VideoWriter_fourcc(*'FFV1'), 20, (width,height))
-            video_annot = cv2.VideoWriter(video_name_annot, cv2.VideoWriter_fourcc(*'FFV1'), 20, (width,height))
-            hasVideoStarted = True
-        
-        #imsave('screenshot.png', np.array(img, dtype=np.uint8))
-        video_orig.write(img)
-        
-        env.annotated = True
-        img = env.render('rgb_array')
-        video_annot.write(img)
-        
-        env.annotated = annotated_state
-        #if env.annotated:
-            #env.annotated = False
-            #img = env.render('rgb_array')
-            #imsave('screenshot_a.png', np.array(img, dtype=np.uint8))
-            #env.annotated = True
+        if env.annotated == 0:
+            # cannot start form unannotated mode
+            # the program doesn't know which annotation mode to pick for the recording
+            print("Stopping recording. Cannot start in unannotated mode.")
+            recordingInProgress = False
+        else:
+            # get the original and annotated image data
+            # using the observer object/methods instead of the env.render("rgb_array"), this
+            # results in -1 rendering calls (also a 640x480 frame instead of 800x600 one)
+            img_annot = obs
+            annotated_state = env.annotated
+            env.annotated = 0
+            img_orig = env.render_obs()
+            env.annotated = annotated_state
+
+            # save the data in a buffer
+            recorder_orig.record(img_orig)
+            recorder_annot.record(img_annot)
+
+            # limit the max recording length to 10 sec
+            env.recording_time += dt    # add the delta time [s] to the recording time
+            if env.recording_time > 10.0:
+                recordingInProgress = False
+                t_orig = Thread(target=recorder_orig.save, kwargs={"filename": "orig"})
+                t_annot = Thread(target=recorder_annot.save, kwargs={"filename": "annot"})
+                t_orig.start()
+                t_annot.start()
+                env.recording_time = 0.0
 
     if done:
         print('done!')

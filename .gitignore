@@ -4,6 +4,8 @@
 .idea/
 .vscode/
 .vs/
+.ipynb_checkpoints/*
+**/__pycache__/*
 
 xvfb.log
 bin

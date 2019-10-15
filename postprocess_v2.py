@@ -1,27 +1,14 @@
-"""
-This script processes the original and annotated video files exported from the simulator. The original and annotated file naming scheme takes the form of:
-
-(sequence_nr)_(orig|annot).avi
-
-The results of the script are preprocessed AND separated video files according to the following logic:
- - the first [ratio] size of the original video goes to the /training directory
- - the last [1-ratio] size of the original video goes to the /test directory
- - the first [ratio] size of the annotated video goes to the /validation directory
- - the last [1-ratio] size of the annotated video gets discarded
-"""
-
 import glob
 import sys
 import cv2
 import os
 import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--ratio', default=0.5, type=float, help='')
-parser=parser.parse_args()
-
-ratio = parser.ratio
-print("Training/Testing dataset ratio set to: {}%".format(ratio))
+train_ratio = 6
+validation_ratio = 2
+test_ratio = 2
+total_ratio = train_ratio + validation_ratio + test_ratio
+print("Training/Validation/Testing dataset ratio set to: {}:{}:{}".format(train_ratio, validation_ratio, test_ratio))
 
 # Binarization algorithm, with a given original and annotated pair of image
 def binarize_a(img_orig, img_ant):
@@ -64,8 +51,24 @@ if len(annot_raw_list) != len(orig_raw_list):
     print("Length mismatch! No postprocess performed.")
     sys.exit()
 
+unit_ratio = float(len(orig_raw_list) / total_ratio)
+# standardizing ratios
+train_ratio = int(train_ratio * unit_ratio)
+validation_ratio = int(validation_ratio * unit_ratio)
+test_ratio = int(test_ratio * unit_ratio)
+ratio_cnt = 0
 # Iterate and postprocess every recording
 for i in range(len(orig_raw_list)):
+    dir = ""
+    # the first train_ratio/unit_ratio video goes under the data/train folder
+    if ratio_cnt < train_ratio:
+        dir = os.path.join(os.getcwd(), "data", "train")
+    elif ratio_cnt < train_ratio + validation_ratio:
+        dir = os.path.join(os.getcwd(), "data", "validation")
+    else:
+        dir = os.path.join(os.getcwd(), "data", "test")
+    ratio_cnt += 1
+
     # Open recordings...
     cap_orig = cv2.VideoCapture(orig_raw_list[i])
     cap_annot = cv2.VideoCapture(annot_raw_list[i])
@@ -92,8 +95,7 @@ for i in range(len(orig_raw_list)):
     filename_orig = filename_orig + '_pp.avi'
     if os.path.exists(filename_orig):   # If file exists...
         os.remove(filename_orig)    # ...delete it
-    vWriter_orig = cv2.VideoWriter(os.path.join(os.getcwd(), "data", "train", filename_orig), fourcc, fps, framesize, isColor)
-    vWriter_orig2 = cv2.VideoWriter(os.path.join(os.getcwd(), "data", "test", filename_orig), fourcc, fps, framesize, isColor)
+    vWriter_orig = cv2.VideoWriter(os.path.join(dir, filename_orig), fourcc, fps, framesize, isColor)
     
     isColor=False
     _, filename_annot = os.path.split(annot_raw_list[i])
@@ -101,7 +103,7 @@ for i in range(len(orig_raw_list)):
     filename_annot = filename_annot + '_pp.avi'
     if os.path.exists(filename_annot):  # If file exists...
         os.remove(filename_annot)   # ...delete it
-    vWriter_annot = cv2.VideoWriter(os.path.join(os.getcwd(), "data", "validation", filename_annot), fourcc, fps, framesize, isColor)
+    vWriter_annot = cv2.VideoWriter(os.path.join(dir, filename_annot), fourcc, fps, framesize, isColor)
     
     if not vWriter_orig.isOpened() or not vWriter_annot.isOpened():
         print("Could not open vide writers! Continuing...")
@@ -111,25 +113,19 @@ for i in range(len(orig_raw_list)):
     
     # Produce output videos
     print("Processing recording nr. {}...".format(i))
-    frame_cnt = 0
     while cap_orig.isOpened() and cap_annot.isOpened(): # Iterate through every frame
         ret_o, frame_o = cap_orig.read()
         ret_a, frame_a = cap_annot.read()
         if not ret_o or not ret_a:
             break
 
-        if frame_cnt < int(cap_orig.get(cv2.CAP_PROP_FRAME_COUNT) * ratio):
-            # Postprocess original recording: convert from BGR to RGB
-            vWriter_orig.write(cv2.cvtColor(frame_o,cv2.COLOR_BGR2RGB))
-            
-            # Postprocess annotated frame: binarize it
-            annot_binary = binarize(frame_o, frame_a)
-            vWriter_annot.write(annot_binary)
-        else:
-            # write out the test data
-            vWriter_orig2.write(cv2.cvtColor(frame_o,cv2.COLOR_BGR2RGB))
-        
-        frame_cnt += 1
+        # Postprocess original recording: convert from BGR to RGB
+        vWriter_orig.write(cv2.cvtColor(frame_o,cv2.COLOR_BGR2RGB))
+
+        # Postprocess annotated frame: binarize it
+        annot_binary = binarize(frame_o, frame_a)
+        vWriter_annot.write(annot_binary)
+
     
     print("Processing of recording nr. {} done.".format(i))
     

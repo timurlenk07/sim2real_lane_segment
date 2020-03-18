@@ -321,6 +321,7 @@ class Simulator(gym.Env):
 
         self.annotated = annotated
         self.recording_time = recording_time
+        self.last_noise = 1
 
         # Initialize the state
         self.reset()
@@ -752,7 +753,7 @@ class Simulator(gym.Env):
             return None
         return self.grid[j * self.grid_width + i]
 
-    def _perturb(self, val, scale=0.1):
+    def _perturb(self, val, scale=0.1, use_last_noise=False):
         """
         Add noise to a value. This is used for domain randomization.
         """
@@ -765,11 +766,15 @@ class Simulator(gym.Env):
         if not self.domain_rand:
             return val
 
+        if use_last_noise:
+            return val * self.last_noise
+        
         if isinstance(val, np.ndarray):
             noise = self.np_random.uniform(low=1 - scale, high=1 + scale, size=val.shape)
         else:
             noise = self.np_random.uniform(low=1 - scale, high=1 + scale)
 
+        self.last_noise = noise
         return val * noise
 
     def _collidable_object(self, obj_corners, obj_norm, possible_tiles):
@@ -1355,6 +1360,8 @@ class Simulator(gym.Env):
         frame_skip = self.frame_skip
         if self.domain_rand:
             frame_skip = self.randomization_settings["frame_skip"]
+            if not np.isscalar(frame_skip):
+                frame_skip = frame_skip[0]
         
         for _ in range(frame_skip):
             self.update_physics(action)
@@ -1390,7 +1397,7 @@ class Simulator(gym.Env):
             done_code = 'in-progress'
         return DoneRewardInfo(done=done, done_why=msg, reward=reward, done_code=done_code)
 
-    def _render_img(self, width, height, multi_fbo, final_fbo, img_array, top_down=True):
+    def _render_img(self, width, height, multi_fbo, final_fbo, img_array, top_down=True, use_last_noise=False):
         """
         Render an image of the environment into a frame buffer
         Produce a numpy RGB array image as output
@@ -1433,7 +1440,7 @@ class Simulator(gym.Env):
         angle = self.cur_angle
         # logger.info('Pos: %s angle %s' % (self.cur_pos, self.cur_angle))
         if self.domain_rand:
-            pos = pos + self.randomization_settings['camera_noise']
+            pos = pos + self.randomization_settings['camera_noise'] #TODOTODO
             
         x, y, z = pos + self.cam_offset
         dx, dy, dz = get_dir_vec(angle)
@@ -1448,7 +1455,7 @@ class Simulator(gym.Env):
             gl.glRotatef(self.cam_angle[0], 1, 0, 0)
             gl.glRotatef(self.cam_angle[1], 0, 1, 0)
             gl.glRotatef(self.cam_angle[2], 0, 0, 1)
-            gl.glTranslatef(0, 0, self._perturb(CAMERA_FORWARD_DIST))
+            gl.glTranslatef(0, 0, self._perturb(CAMERA_FORWARD_DIST, use_last_noise=use_last_noise))
 
         if top_down:
             gl.gluLookAt(
@@ -1603,7 +1610,7 @@ class Simulator(gym.Env):
 
         return img_array
 
-    def render_obs(self):
+    def render_obs(self, use_last_noise=False):
         """
         Render an observation from the point of view of the agent
         """
@@ -1614,7 +1621,8 @@ class Simulator(gym.Env):
                 self.multi_fbo,
                 self.final_fbo,
                 self.img_array,
-                top_down=False
+                top_down=False,
+                use_last_noise=use_last_noise
         )
 
         # self.undistort - for UndistortWrapper

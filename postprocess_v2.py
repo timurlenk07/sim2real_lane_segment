@@ -1,14 +1,28 @@
 import glob
-import sys
 import cv2
 import os
-import argparse
+from argparse import ArgumentParser
 
-train_ratio = 6
-validation_ratio = 2
-test_ratio = 2
+parser = ArgumentParser()
+parser.add_argument('-dp', '--delete_processed', default=False, action='store_true')
+parser.add_argument('-cd', '--clear_data', default=False, action='store_true')
+parser.add_argument('-id', '--input_dir', default=os.path.join(os.getcwd(), 'recordings'))
+parser.add_argument('-od', '--output_dir', default=os.path.join(os.getcwd(), 'data'))
+args = parser.parse_args()
+
+
+if args.clear_data:
+    try:
+        from shutil import rmtree
+        rmtree('data')
+    except FileNotFoundError:
+        pass
+
+train_ratio = 60
+validation_ratio = 20
+test_ratio = 20
 total_ratio = train_ratio + validation_ratio + test_ratio
-print("Training/Validation/Testing dataset ratio set to: {}:{}:{}".format(train_ratio, validation_ratio, test_ratio))
+print("Training/Validation/Testing dataset ratio set to: {}-{}-{}%".format(train_ratio, validation_ratio, test_ratio))
 
 # Binarization algorithm, with a given original and annotated pair of image
 def binarize_a(img_orig, img_ant):
@@ -43,13 +57,20 @@ def binarize_b(img_orig, img_ant):
 binarize = binarize_b
 
 # Get the list of available recordings
-annot_raw_list = glob.glob('recordings\*_annot.avi')
-orig_raw_list = glob.glob('recordings\*_orig.avi')
+annot_raw_list = sorted(glob.glob(os.path.join(args.input_dir, '*_annot.avi')))
+orig_raw_list = sorted(glob.glob(os.path.join(args.input_dir, '*_orig.avi')))
 
 # Check whether original and annotated recordings number match or not
 if len(annot_raw_list) != len(orig_raw_list):
     print("Length mismatch! No postprocess performed.")
-    sys.exit()
+    from sys import exit
+    exit()
+
+# Create output dir structure
+os.mkdir(args.output_dir)
+os.mkdir(os.path.join(args.output_dir, 'train'))
+os.mkdir(os.path.join(args.output_dir, 'validation'))
+os.mkdir(os.path.join(args.output_dir, 'test'))
 
 unit_ratio = float(len(orig_raw_list) / total_ratio)
 # standardizing ratios
@@ -62,11 +83,11 @@ for i in range(len(orig_raw_list)):
     dir = ""
     # the first train_ratio/unit_ratio video goes under the data/train folder
     if ratio_cnt < train_ratio:
-        dir = os.path.join(os.getcwd(), "data", "train")
+        dir = os.path.join(args.output_dir, 'train')
     elif ratio_cnt < train_ratio + validation_ratio:
-        dir = os.path.join(os.getcwd(), "data", "validation")
+        dir = os.path.join(args.output_dir, 'validation')
     else:
-        dir = os.path.join(os.getcwd(), "data", "test")
+        dir = os.path.join(args.output_dir, 'test')
     ratio_cnt += 1
 
     # Open recordings...
@@ -106,7 +127,7 @@ for i in range(len(orig_raw_list)):
     vWriter_annot = cv2.VideoWriter(os.path.join(dir, filename_annot), fourcc, fps, framesize, isColor)
     
     if not vWriter_orig.isOpened() or not vWriter_annot.isOpened():
-        print("Could not open vide writers! Continuing...")
+        print("Could not open video writers! Continuing...")
         vWriter_annot.release()
         vWriter_orig.release()
         continue
@@ -132,5 +153,12 @@ for i in range(len(orig_raw_list)):
     # Release writer resources
     vWriter_annot.release()
     vWriter_orig.release()
+
+if args.delete_processed:
+    try:
+        from shutil import rmtree
+        rmtree('recordings')
+    except FileNotFoundError:
+        pass
 
 print("Post-processing finished!")

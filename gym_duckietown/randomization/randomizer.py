@@ -13,7 +13,7 @@ class Randomizer:
         except:
             logger.warning("Couldn't find {} in randomization/config subdirectory".format(randomization_config_fp))
             self.randomization_config = dict()
-
+        
         with open(get_file_path('randomization/config', default_config_fp, 'json'), mode='r') as f:
             self.default_config = json.load(f)
 

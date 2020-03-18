@@ -16,11 +16,9 @@ import gym
 import gym_duckietown
 from gym_duckietown.envs import DuckietownEnv
 from gym_duckietown.wrappers import UndistortWrapper
-import cv2
-from threading import Thread
+
 from gym_duckietown.recorder import Recorder
 
-# from experiments.utils import save_img
 
 pyglet.options['debug_gl'] = False
 pyglet.options['vsync'] = False
@@ -58,6 +56,21 @@ recordingInProgress = False
 recorder_orig = Recorder()
 recorder_annot = Recorder()
 
+def startRecording():
+    global recordingInProgress
+    print('Start recording...')
+    recorder_orig.startRecording('orig')
+    recorder_annot.startRecording('annot')
+    recordingInProgress = True
+
+def stopRecording():
+    global recordingInProgress
+    print('Stop recording.')
+    recordingInProgress = False
+    recorder_orig.stopRecording()
+    recorder_annot.stopRecording()
+    env.recording_time = 0.0
+
 
 @env.unwrapped.window.event
 def on_key_press(symbol, modifiers):
@@ -69,31 +82,36 @@ def on_key_press(symbol, modifiers):
     global recordingInProgress
     if symbol == key.BACKSPACE or symbol == key.SLASH:
         print('RESET')
+        stopRecording()
         env.reset()
         env.render()
     elif symbol == key.PAGEUP:
         env.unwrapped.cam_angle[0] = 0
     elif symbol == key.ESCAPE:
+        stopRecording()
         env.close()
         sys.exit(0)
 
     elif symbol == key.A:
-        print('Annotation mode set to: {}'.format(env.annotated+1))
         env.annotated = (env.annotated + 1) % 3
+        print('Annotation mode set to: {}'.format(env.annotated))
+        if env.annotated == 0:
+            # cannot start form unannotated mode
+            # the program doesn't know which annotation mode to pick for the recording
+            print("Stopping recording. Cannot record in unannotated mode.")
+            stopRecording()
 
     # Start/Stop video recording
     elif symbol == key.RETURN:
         if recordingInProgress:
-            print('stop recording')
-            t_orig = Thread(target=recorder_orig.save, kwargs={"filename":"orig"})
-            t_annot = Thread(target=recorder_annot.save, kwargs={"filename":"annot"})
-            t_orig.start()
-            t_annot.start()
-            env.recording_time = 0.0
+            stopRecording()
         else:
-            print('start recording')
-        recordingInProgress = not recordingInProgress
-        
+            if env.annotated == 0:
+                # cannot start form unannotated mode
+                # the program doesn't know which annotation mode to pick for the recording
+                print("Cannot start in unannotated mode.")
+            else:
+                startRecording()
 
 
 # Register a keyboard handler
@@ -106,7 +124,7 @@ def update(dt):
     movement/stepping and redrawing
     """
 
-    global recordingInProgress, hasVideoStarted, video_orig, video_annot
+    global recordingInProgress
 
     action = np.array([0.0, 0.0])
 
@@ -136,39 +154,28 @@ def update(dt):
 
     # record the original and annotated frames
     if recordingInProgress:
-        if env.annotated == 0:
-            # cannot start form unannotated mode
-            # the program doesn't know which annotation mode to pick for the recording
-            print("Stopping recording. Cannot start in unannotated mode.")
-            recordingInProgress = False
-        else:
-            # get the original and annotated image data
-            # using the observer object/methods instead of the env.render("rgb_array"), this
-            # results in -1 rendering calls (also a 640x480 frame instead of 800x600 one)
-            img_annot = obs
-            annotated_state = env.annotated
-            env.annotated = 0
-            img_orig = env.render_obs()
-            env.annotated = annotated_state
+        # get the original and annotated image data
+        # using the observer object/methods instead of the env.render("rgb_array"), this
+        # results in -1 rendering calls (also a 640x480 frame instead of 800x600 one)
+        img_annot = obs
+        annotated_state = env.annotated
+        env.annotated = 0
+        img_orig = env.render_obs(use_last_noise=True)
+        env.annotated = annotated_state
 
-            # save the data in a buffer
-            recorder_orig.record(img_orig)
-            recorder_annot.record(img_annot)
+        # save the data in a buffer
+        recorder_orig.record(img_orig)
+        recorder_annot.record(img_annot)
 
-            # limit the max recording length to 10 sec
-            env.recording_time += dt    # add the delta time [s] to the recording time
-            if env.recording_time > 10.0:
-                recordingInProgress = False
-                t_orig = Thread(target=recorder_orig.save, kwargs={"filename": "orig"})
-                t_annot = Thread(target=recorder_annot.save, kwargs={"filename": "annot"})
-                t_orig.start()
-                t_annot.start()
-                env.recording_time = 0.0
+        # limit the max recording length to 10 sec
+        env.recording_time += dt    # add the delta time [s] to the recording time
+        if env.recording_time > 10.0:
+            stopRecording()
 
     if done:
         print('done!')
+        stopRecording()
         env.reset()
-        env.render()
 
     env.render()
 
@@ -178,8 +185,10 @@ pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
 # Enter main event loop
 pyglet.app.run()
 
-if hasVideoStarted:
-    video_orig.release()
-    video_annot.release()
+# Wait till saving finished
+if recorder_orig.saveThread is not None:
+    recorder_orig.saveThread.join()
+if recorder_annot.saveThread is not None:
+    recorder_annot.saveThread.join()
 
 env.close()

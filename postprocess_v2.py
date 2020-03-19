@@ -1,6 +1,7 @@
 import glob
 import cv2
 import os
+from random import shuffle
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
@@ -66,6 +67,9 @@ if len(annot_raw_list) != len(orig_raw_list):
     from sys import exit
     exit()
 
+raw_list = list(zip(orig_raw_list, annot_raw_list))
+shuffle(raw_list)
+
 # Create output dir structure
 os.mkdir(args.output_dir)
 os.mkdir(os.path.join(args.output_dir, 'train'))
@@ -78,9 +82,10 @@ train_ratio = int(train_ratio * unit_ratio)
 validation_ratio = int(validation_ratio * unit_ratio)
 test_ratio = int(test_ratio * unit_ratio)
 ratio_cnt = 0
+
 # Iterate and postprocess every recording
-for i in range(len(orig_raw_list)):
-    dir = ""
+for i, [orig_fp, annot_fp] in enumerate(raw_list):
+    
     # the first train_ratio/unit_ratio video goes under the data/train folder
     if ratio_cnt < train_ratio:
         dir = os.path.join(args.output_dir, 'train')
@@ -91,8 +96,8 @@ for i in range(len(orig_raw_list)):
     ratio_cnt += 1
 
     # Open recordings...
-    cap_orig = cv2.VideoCapture(orig_raw_list[i])
-    cap_annot = cv2.VideoCapture(annot_raw_list[i])
+    cap_orig = cv2.VideoCapture(orig_fp)
+    cap_annot = cv2.VideoCapture(annot_fp)
     if not cap_orig.isOpened() or not cap_annot.isOpened():
         print("Could not open files! Continuing...")
         continue
@@ -109,7 +114,7 @@ for i in range(len(orig_raw_list)):
     framesize=(640,480)
     isColor=True
     # split the ./recordings/00000_orig.avi into 2 components (head, tail)
-    recordings_dir_path, filename_orig = os.path.split(orig_raw_list[i])
+    recordings_dir_path, filename_orig = os.path.split(orig_fp)
     # further split the ./recordings dir to find the project root
     project_root, _ = os.path.split(recordings_dir_path)
     filename_orig, _ = os.path.splitext(filename_orig)
@@ -119,7 +124,7 @@ for i in range(len(orig_raw_list)):
     vWriter_orig = cv2.VideoWriter(os.path.join(dir, filename_orig), fourcc, fps, framesize, isColor)
     
     isColor=False
-    _, filename_annot = os.path.split(annot_raw_list[i])
+    _, filename_annot = os.path.split(annot_fp)
     filename_annot, _ = os.path.splitext(filename_annot)
     filename_annot = filename_annot + '_pp.avi'
     if os.path.exists(filename_annot):  # If file exists...

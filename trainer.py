@@ -63,7 +63,7 @@ def makeEpoch(net, dataLoader, isTrain, criterion, optimizer=None, useCuda=False
         _, predicted = torch.max(outputs, 1)
 
         # Helyes és összes predikció frissítése
-        total += labels.size(0)
+        total += labels.numel()
         correct += predicted.eq(labels).sum().item()
 
     # Költség és pontosság meghatározása az epoch mutatóiból
@@ -97,8 +97,8 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(net.parameters(), lr=lr, weight_decay=decay)
 
-    # Tanulási ráta ütemező: az ütemezés frekvenciája az epochok számának ötöde, de minimum 10
-    scheduler = CosineAnnealingLR(optimizer, max(numEpoch / 5, 10), eta_min=lr / lr_ratio)
+    # Tanulási ráta ütemező: az ütemezés frekvenciája az epochok számának ötöde, de minimum 5
+    scheduler = CosineAnnealingLR(optimizer, max(numEpoch / 5, 5), eta_min=lr / lr_ratio)
 
     # A futás során keletkező mutatók mentésére üres listák
     trLosses = []
@@ -125,7 +125,7 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
         # Tanításról információ kiírása
         if verbose:
             print(f"Epoch {epoch + 1}: A tanítási költség {trLoss:.3f}, a tanítási pontosság {trCorr:.2f}%")
-            print(f"Epoch {epoch + 1}: A validciós költség {valLoss:.3f}, a validációs pontosság {valCorr:.2f}%")
+            print(f"Epoch {epoch + 1}: A validációs költség {valLoss:.3f}, a validációs pontosság {valCorr:.2f}%")
 
         # Tanulási ráta ütemező léptetése
         scheduler.step()
@@ -138,7 +138,7 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
         plt.legend()
-        plt.savefig('losses.png', bbox_inches='tight')
+        plt.savefig('./results/losses.png', bbox_inches='tight')
         plt.close()
 
         plt.plot(trAccs, label='Training')
@@ -146,14 +146,15 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy [%]')
         plt.legend()
-        plt.savefig('accs.png', bbox_inches='tight')
+        plt.savefig('./results/accs.png', bbox_inches='tight')
         plt.close()
 
     # Visszatérési érték a tanítás jóságát jellemző érték: legalacsonyabb validációs költség
-    return max(valAccs)
+    return max(valAccs), net
 
 
 
 if __name__=='__main__':
-    bestAcc = trainNet(64, 3, 7, 'leakyRelu', dropOut=0.5, bSize=1, lr=1e-3, numEpoch=10, verbose=True)
-    print(f"Legjobb validációs pontosság a próbatanítás során: {bestAcc}%")
+    bestAcc, net = trainNet(16, 4, 5, 'leakyRelu', dropOut=0.5, bSize=1024, lr=1e-2, numEpoch=100, verbose=True)
+    print(f"Legjobb validációs pontosság a próbatanítás során: {bestAcc:.2f}%")
+    torch.save(net, './results/EncDecNet.pth')

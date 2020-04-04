@@ -82,11 +82,15 @@ def video2images(directory):
 class RightLaneImagesDataset(Dataset):
     def __init__(self, dataPath, shouldPreprocess=False):
 
+        self.input_dir = os.path.join(dataPath, 'orig')
+        self.target_dir = os.path.join(dataPath, 'annot')
+
+        if not os.path.exists(self.input_dir) or not os.path.exists(self.target_dir):
+            shouldPreprocess = True
+
         if shouldPreprocess:
             video2images(dataPath)
 
-        self.input_dir = os.path.join(dataPath, 'orig')
-        self.target_dir = os.path.join(dataPath, 'annot')
 
         self.data_cnt = len(glob.glob(os.path.join(self.input_dir, '*.png')))
         assert self.data_cnt == len(glob.glob(os.path.join(self.target_dir, '*.png')))
@@ -104,7 +108,7 @@ class RightLaneImagesDataset(Dataset):
         if self.transform is not None:
             x = self.transform(x)
 
-        y = torch.from_numpy(y).long()
+        y = torch.from_numpy(y).long()/255
         return x, y
 
     def setTransform(self, transform):
@@ -147,6 +151,6 @@ if __name__ == '__main__':
         print(x.shape, y.shape)
 
     x, y = trainSet[0]
-    print(torch.mean(x), torch.mean(y))
+    print(torch.mean(x))
     print(torch.min(x), torch.min(y))
     print(torch.max(x), torch.max(y))

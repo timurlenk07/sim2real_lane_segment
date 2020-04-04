@@ -94,7 +94,7 @@ class EncDecNet(nn.Module):
             oFeat = oFeat//2
 
         # Pixelenként következtetés, Sigmoid aktiváció
-        self.classifier = Conv(inFeat, 1, kernelSize=1, activation=nn.Sigmoid(), bNorm=False, dropOut=0)
+        self.classifier = Conv(inFeat, 2, kernelSize=1, activation=nn.Softmax(dim=-3), bNorm=False, dropOut=0)
 
     def forward(self, x):
         # A bemenetet végigvezetjük az összes szinten

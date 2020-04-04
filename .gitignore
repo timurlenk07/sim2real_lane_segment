@@ -2,4 +2,5 @@
 .idea
 .ipynb_checkpoints
 .vs
+.data
 **/__pycache__/*

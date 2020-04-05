@@ -142,7 +142,9 @@ def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, 
         ax2.plot(valAccs, label='Validation')
         ax2.set(xlabel='Epoch', ylabel='Accuracy [%]')
         ax2.legend()
-        fig.savefig('./results/trainingChart.png', bbox_inches='tight')
+
+        plt.tight_layout()
+        fig.savefig('./results/trainingChart.png')
         plt.close()
 
     # Visszatérési érték a tanítás jóságát jellemző érték: teszt pontosság
@@ -156,7 +158,7 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
-    datasets = getRightLaneDatasets('./data')
+    datasets = getRightLaneDatasets('./data', (160, 120))
     dataloaders = getDataLoaders(datasets, 8)
     bestAcc, net = trainNet(verbose=True, numEpoch=1)
     print(f"Teszt pontosság a próbatanítás során: {bestAcc:.2f}%")

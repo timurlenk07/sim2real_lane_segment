@@ -1,11 +1,11 @@
 import concurrent.futures
 import glob
+import itertools
 import logging
 import os
 
 import cv2
 import torch
-import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 
 
@@ -79,13 +79,17 @@ def video2images(directory, newRes):
 
 
 class RightLaneImagesDataset(Dataset):
-    def __init__(self, dataPath, shouldPreprocess=False, resolution=(160, 120)):
+    def __init__(self, dataPath, resolution=(160, 120), shouldPreprocess=False):
 
         self.input_dir = os.path.join(dataPath, 'orig')
         self.target_dir = os.path.join(dataPath, 'annot')
 
         if not os.path.exists(self.input_dir) or not os.path.exists(self.target_dir):
             shouldPreprocess = True
+
+        if resolution is None:
+            # TODO: either recognize resolution or make no changes during disassembling
+            pass
 
         if shouldPreprocess:
             video2images(dataPath, resolution)
@@ -94,29 +98,29 @@ class RightLaneImagesDataset(Dataset):
         if self.data_cnt != len(glob.glob(os.path.join(self.target_dir, '*.png'))):
             raise FileNotFoundError(f"Different input and target count encountered!")
 
-        self.transform = transforms.ToTensor()
+        self.transform = None
 
     def __len__(self):
         return self.data_cnt
 
     def __getitem__(self, index):
         filename = f'{index:06d}.png'
-        x = cv2.imread(os.path.join(self.input_dir, filename))
+        x = cv2.imread(os.path.join(self.input_dir, filename), cv2.IMREAD_COLOR)
         y = cv2.imread(os.path.join(self.target_dir, filename), cv2.IMREAD_GRAYSCALE)
 
         if self.transform is not None:
-            x = self.transform(x)
+            x, y = self.transform(x, y)
 
-        y = torch.from_numpy(y).long() / 255
         return x, y
 
     def setTransform(self, transform):
         self.transform = transform
 
 
-def getRightLaneDatasets(dataPath):
+def getRightLaneDatasets(dataPath, newRes=None, transform=None):
     # assert dataPath is a valid path
-    assert os.path.exists(dataPath)
+    if not os.path.exists(dataPath):
+        raise FileNotFoundError(f"Directory {dataPath} does not exist!")
 
     train_dir = os.path.join(dataPath, "train")
     valid_dir = os.path.join(dataPath, "validation")
@@ -125,12 +129,21 @@ def getRightLaneDatasets(dataPath):
 
     # assert dir in dirs exist
     for directory in dirs:
-        assert os.path.exists(directory)
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"Directory {directory} does not exist!")
+
+    newRes = itertools.repeat(newRes, len(dirs))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        datasets = executor.map(RightLaneImagesDataset, dirs)
+        datasets = executor.map(RightLaneImagesDataset, dirs, newRes)
 
-    return tuple(datasets)
+    datasets = tuple(datasets)
+
+    if transform is not None:
+        for i in range(len(datasets)):
+            datasets[i].setTransform(transform)
+
+    return datasets
 
 
 # Adatbetöltőket készítő függvény
@@ -146,7 +159,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
     # Adatbázis építés
-    trainSet, validSet, testSet = getRightLaneDatasets('./data')
+    trainSet, validSet, testSet = getRightLaneDatasets('./data', (160, 120))
 
     print(len(trainSet), len(validSet), len(testSet))
 

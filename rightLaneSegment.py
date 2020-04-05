@@ -10,6 +10,34 @@ from trainer import trainNet
 haveCuda = torch.cuda.is_available()
 
 
+class MyTransform:
+    def __init__(self, grayscale):
+        self.grayscale = grayscale
+
+    def __call__(self, img, label):
+        if self.grayscale:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = torch.from_numpy(img.transpose((2, 0, 1)))
+        img = img.float().div(255)
+
+        label = torch.from_numpy(label).long() / 255
+
+        return img, label
+
+    def __repr__(self):
+        return self.__class__.__name__ + '()'
+
+    def doInverse(self, img, label):
+        img = img.mul(255).byte()
+        img = img.numpy().transpose((1, 2, 0))
+        if self.grayscale:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+        label = label.mul(255).byte().numpy()
+
+        return img, label
+
+
 def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
                    dropOut=0.3, bSize=32, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4,
                    verbose=False, setSeeds=True):
@@ -22,11 +50,11 @@ def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
             torch.backends.cudnn.benchmark = False
 
     # Létrehozzuk a hálózatunkat (lehetőség szerint GPU-n); az osztályok száma adott az adatbázis miatt!
-    net = EncDecNet(nFeat, nLevels, kernelSize, nLinType, bNorm, dropOut)
+    net = EncDecNet(nFeat, nLevels, kernelSize, nLinType, bNorm, dropOut, inFeat=3)
     if haveCuda:
         net = net.cuda()
 
-    datasets = getRightLaneDatasets('./data')
+    datasets = getRightLaneDatasets('./data', transform=MyTransform(False))
 
     # Adatbetöltők lekérése adott batch mérettel
     dataloaders = getDataLoaders(datasets, bSize)
@@ -48,15 +76,10 @@ def makeExamples(net: nn.Module, testLoader, printNum):
     _, p = torch.max(net(x), 1)
     p = p.squeeze()
 
-    x = (x * 255).byte()
-    y = (y * 255).byte()
-    p = (p * 255).byte()
-
     finalResult = np.empty([0, 480, 3], dtype=np.uint8)
     for img, label, pred in zip(x, y, p):
-        img = np.transpose(img.numpy(), axes=(1, 2, 0))
-        label = label.numpy()
-        pred = pred.numpy()
+        img, label = testLoader.dataset.transform.doInverse(img, label)
+        pred = pred.mul(255).byte().numpy()
 
         label = cv2.cvtColor(label, cv2.COLOR_GRAY2RGB)
         pred = cv2.cvtColor(pred, cv2.COLOR_GRAY2RGB)
@@ -74,13 +97,13 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
-    bestAcc, net = trainEncDecNet(16, 4, 5, 'leakyRelu', bSize=512, verbose=True, numEpoch=100)
+    bestAcc, net = trainEncDecNet(16, 4, 5, 'leakyRelu', bSize=512, verbose=True, numEpoch=1)
     print(f"A teszt adatokon elért pontosság: {bestAcc:.2f}%")
     torch.save(net.state_dict(), './results/EncDecNet.pth')
 
     # Print some example predictions
     net.load_state_dict(torch.load('./results/EncDecNet.pth'))
     net.eval()
-    datasets = getRightLaneDatasets('./data')
+    datasets = getRightLaneDatasets('./data', (160, 120), transform=MyTransform(False))
     _, _, trainLoader = getDataLoaders(datasets, 8)
     makeExamples(net, trainLoader, 5)

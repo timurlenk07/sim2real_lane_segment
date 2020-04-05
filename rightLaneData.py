@@ -8,12 +8,8 @@ import torch
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
-new_res = (160, 120)  # TODO check newres
-
-
-def video2images(directory):
+def video2images(directory, newRes):
     logging.info(f"Managing directory: {directory}")
 
     # Get the list of available recordings
@@ -25,8 +21,8 @@ def video2images(directory):
 
     logging.info(f"{directory} Number of files found: {len(annot_vids)}. Taking apart video files...")
 
-    os.makedirs(os.path.join(directory, 'orig'))
-    os.makedirs(os.path.join(directory, 'annot'))
+    os.makedirs(os.path.join(directory, 'orig'), exist_ok=True)
+    os.makedirs(os.path.join(directory, 'annot'), exist_ok=True)
 
     img_counter = 0
     vid_counter = 0
@@ -53,9 +49,12 @@ def video2images(directory):
             if not ret_o or not ret_a:
                 break
 
-            frame_o = cv2.resize(frame_o, new_res)
+            frame_o = cv2.resize(frame_o, newRes, interpolation=cv2.INTER_LANCZOS4)
             frame_a = cv2.cvtColor(frame_a, cv2.COLOR_BGR2GRAY)
-            frame_a = cv2.resize(frame_a, new_res)
+            frame_a = cv2.resize(frame_a, newRes, interpolation=cv2.INTER_LANCZOS4)
+
+            # y should be binary
+            _, frame_a = cv2.threshold(frame_a, 127, 255, cv2.THRESH_BINARY)
 
             filename = str(img_counter).zfill(6) + '.png'
             filepath_o = os.path.join(directory, 'orig', filename)
@@ -80,7 +79,7 @@ def video2images(directory):
 
 
 class RightLaneImagesDataset(Dataset):
-    def __init__(self, dataPath, shouldPreprocess=False):
+    def __init__(self, dataPath, shouldPreprocess=False, resolution=(160, 120)):
 
         self.input_dir = os.path.join(dataPath, 'orig')
         self.target_dir = os.path.join(dataPath, 'annot')
@@ -89,11 +88,11 @@ class RightLaneImagesDataset(Dataset):
             shouldPreprocess = True
 
         if shouldPreprocess:
-            video2images(dataPath)
-
+            video2images(dataPath, resolution)
 
         self.data_cnt = len(glob.glob(os.path.join(self.input_dir, '*.png')))
-        assert self.data_cnt == len(glob.glob(os.path.join(self.target_dir, '*.png')))
+        if self.data_cnt != len(glob.glob(os.path.join(self.target_dir, '*.png'))):
+            raise FileNotFoundError(f"Different input and target count encountered!")
 
         self.transform = transforms.ToTensor()
 
@@ -108,7 +107,7 @@ class RightLaneImagesDataset(Dataset):
         if self.transform is not None:
             x = self.transform(x)
 
-        y = torch.from_numpy(y).long()/255
+        y = torch.from_numpy(y).long() / 255
         return x, y
 
     def setTransform(self, transform):
@@ -134,7 +133,18 @@ def getRightLaneDatasets(dataPath):
     return tuple(datasets)
 
 
+# Adatbetöltőket készítő függvény
+def getDataLoaders(datasets, batchSize=128):
+    trainLoader = torch.utils.data.DataLoader(datasets[0], batch_size=batchSize, shuffle=True)
+    validLoader = torch.utils.data.DataLoader(datasets[1], batch_size=batchSize, shuffle=True)
+    testLoader = torch.utils.data.DataLoader(datasets[2], batch_size=batchSize, shuffle=True)
+    return trainLoader, validLoader, testLoader
+
+
 if __name__ == '__main__':
+    assert torch.cuda.device_count() <= 1
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
+
     # Adatbázis építés
     trainSet, validSet, testSet = getRightLaneDatasets('./data')
 

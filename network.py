@@ -116,11 +116,15 @@ class EncDecNet(nn.Module):
         return sum([p.numel() for p in self.parameters()])
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
+    assert torch.cuda.device_count() <= 1
+
     import os
+
     print(f"Usable GPUs: {os.environ['CUDA_VISIBLE_DEVICES']}")
-    net = EncDecNet(64,3,7)
-    print(f"Net parameters: {net.getNParams()}")
-    img = torch.ones(1,3,120,160)
+
+    net = EncDecNet(64, 3, 7)
+    print(f"Net number of parameters: {net.getNParams()}")
+    img = torch.ones(1, 3, 120, 160)
     out = net(img)
     print(img.shape, out.shape)

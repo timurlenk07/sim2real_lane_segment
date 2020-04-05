@@ -1,25 +1,16 @@
-from tqdm import tqdm
-import torch
-import torch.nn as nn
-
-from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
+import os
 
 import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from tqdm import tqdm
 
-from network import EncDecNet
-from dataLoaders import getRightLaneDatasets
+from rightLaneData import getRightLaneDatasets, getDataLoaders
 
 haveCuda = torch.cuda.is_available()
 
-trainSet, validSet, testSet = getRightLaneDatasets('./data')
-
-# Adatbetöltőket készítő függvény
-def getDataLoaders(batchSize=128):
-    trainLoader = torch.utils.data.DataLoader(trainSet, batch_size=batchSize, shuffle=True)
-    validLoader = torch.utils.data.DataLoader(validSet, batch_size=batchSize, shuffle=True)
-    testLoader = torch.utils.data.DataLoader(testSet, batch_size=batchSize, shuffle=True)
-    return trainLoader, validLoader, testLoader
 
 def makeEpoch(net, dataLoader, isTrain, criterion, optimizer=None, useCuda=False, verbose=False):
     if isTrain and optimizer is None:
@@ -37,7 +28,7 @@ def makeEpoch(net, dataLoader, isTrain, criterion, optimizer=None, useCuda=False
         net.eval()
 
     # Iteráció az epochban, batchenként
-    for data in tqdm(dataLoader):
+    for data in (tqdm(dataLoader) if verbose else dataLoader):
         # Betöltött adat feldolgozása, ha kell, GPU-ra töltés
         inputs, labels = data
         if useCuda:
@@ -73,10 +64,10 @@ def makeEpoch(net, dataLoader, isTrain, criterion, optimizer=None, useCuda=False
     return epochLoss, epochCorr
 
 
+def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, verbose=False, setSeeds=True):
+    if numEpoch < 1:
+        return 0.0
 
-def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
-             dropOut=0.3, bSize=32, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4,
-             verbose=False, setSeeds=True):
     # A függvény ismételt futtatása esetén ugyanazokat az eredményeket adja
     if setSeeds:
         torch.manual_seed(42)
@@ -85,20 +76,15 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
-    # Létrehozzuk a hálózatunkat (lehetőség szerint GPU-n); az osztályok száma adott az adatbázis miatt!
-    net = EncDecNet(nFeat, nLevels, kernelSize, nLinType, bNorm, dropOut)
-    if haveCuda:
-        net = net.cuda()
-
-    # Adatbetöltők lekérése adott batch mérettel
-    trainLoader, validLoader, testLoader = getDataLoaders(bSize)
+    # Adatbetöltők kicsomagolása
+    trainLoader, validLoader, testLoader = dataLoaders
 
     # Költség és optimalizáló algoritmus (ezek előre meghatározottak, paramétereik szabadok)
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(net.parameters(), lr=lr, weight_decay=decay)
 
     # Tanulási ráta ütemező: az ütemezés frekvenciája az epochok számának ötöde, de minimum 5
-    scheduler = CosineAnnealingLR(optimizer, max(numEpoch / 5, 5), eta_min=lr / lr_ratio)
+    scheduler = CosineAnnealingLR(optimizer, max(numEpoch // 5, 5), eta_min=lr / lr_ratio)
 
     # A futás során keletkező mutatók mentésére üres listák
     trLosses = []
@@ -109,52 +95,71 @@ def trainNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
     if verbose:
         print(f"Tanítás indul. Paraméterek száma: {net.getNParams()}")
 
+    # Save best model
+    maxAcc = 0
+
     # Iteráció az epochokon
     for epoch in range(numEpoch):
 
         # Tanítás és validáció
-        trLoss, trCorr = makeEpoch(net, trainLoader, True, criterion, optimizer, useCuda=haveCuda, verbose=verbose)
-        valLoss, valCorr = makeEpoch(net, validLoader, False, criterion, useCuda=haveCuda, verbose=verbose)
+        trLoss, trAcc = makeEpoch(net, trainLoader, True, criterion, optimizer, useCuda=haveCuda, verbose=verbose)
+        valLoss, valAcc = makeEpoch(net, validLoader, False, criterion, useCuda=haveCuda, verbose=verbose)
 
         # Mutatók mentése
         trLosses.append(trLoss)
-        trAccs.append(trCorr)
+        trAccs.append(trAcc)
         valLosses.append(valLoss)
-        valAccs.append(valCorr)
+        valAccs.append(valAcc)
 
         # Tanításról információ kiírása
         if verbose:
-            print(f"Epoch {epoch + 1}: A tanítási költség {trLoss:.3f}, a tanítási pontosság {trCorr:.2f}%")
-            print(f"Epoch {epoch + 1}: A validációs költség {valLoss:.3f}, a validációs pontosság {valCorr:.2f}%")
+            print(f"Epoch {epoch + 1}: A tanítási költség {trLoss:.3f}, a tanítási pontosság {trAcc:.2f}%")
+            print(f"Epoch {epoch + 1}: A validációs költség {valLoss:.3f}, a validációs pontosság {valAcc:.2f}%")
 
         # Tanulási ráta ütemező léptetése
         scheduler.step()
 
+        if (valAcc > maxAcc):
+            maxAcc = valAcc
+            torch.save(net.state_dict(), '.bestModel')
+
+    net.load_state_dict(torch.load('.bestModel'))
+    os.remove('.bestModel')
+
+    # Calculate result for test set
+    testLoss, testAcc = makeEpoch(net, testLoader, False, criterion, useCuda=haveCuda, verbose=verbose)
+
     # Befejezéskor információk kiírása
     if verbose:
         print('Tanítás befejezve.')
-        plt.plot(trLosses, label='Training')
-        plt.plot(valLosses, label='Validation')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.savefig('./results/losses.png', bbox_inches='tight')
+        fig, (ax1, ax2) = plt.subplots(2)
+        ax1.plot(trLosses, label='Training')
+        ax1.plot(valLosses, label='Validation')
+        ax1.set(xlabel='Epoch', ylabel='Loss')
+        ax1.legend()
+
+        ax2.plot(trAccs, label='Training')
+        ax2.plot(valAccs, label='Validation')
+        ax2.set(xlabel='Epoch', ylabel='Accuracy [%]')
+        ax2.legend()
+        fig.savefig('./results/trainingChart.png', bbox_inches='tight')
         plt.close()
 
-        plt.plot(trAccs, label='Training')
-        plt.plot(valAccs, label='Validation')
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy [%]')
-        plt.legend()
-        plt.savefig('./results/accs.png', bbox_inches='tight')
-        plt.close()
-
-    # Visszatérési érték a tanítás jóságát jellemző érték: legalacsonyabb validációs költség
-    return max(valAccs), net
+    # Visszatérési érték a tanítás jóságát jellemző érték: teszt pontosság
+    return testAcc
 
 
+if __name__ == '__main__':
+    assert torch.cuda.device_count() <= 1
 
-if __name__=='__main__':
-    bestAcc, net = trainNet(16, 4, 5, 'leakyRelu', dropOut=0.5, bSize=1024, lr=1e-2, numEpoch=100, verbose=True)
-    print(f"Legjobb validációs pontosság a próbatanítás során: {bestAcc:.2f}%")
-    torch.save(net, './results/EncDecNet.pth')
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
+
+    datasets = getRightLaneDatasets('./data')
+    dataloaders = getDataLoaders(datasets, 8)
+    bestAcc, net = trainNet(verbose=True, numEpoch=1)
+    print(f"Teszt pontosság a próbatanítás során: {bestAcc:.2f}%")
+
+    # Evaluate on test
+    net.eval()

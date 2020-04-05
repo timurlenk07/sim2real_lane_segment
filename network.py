@@ -51,7 +51,7 @@ activationTypes = list(activationDict.keys())
 
 class EncDecNet(nn.Module):
     def __init__(self, nFeat: int, nLevels: int, kernelSize: int = 3,
-                 nLinType: str = 'relu', bNorm: bool = True, dropOut: int = 0.3):
+                 nLinType: str = 'relu', bNorm: bool = True, dropOut: int = 0.3, inFeat=3):
         super(EncDecNet, self).__init__()
 
         # Kapott paraméterek ellenőrzése
@@ -73,7 +73,7 @@ class EncDecNet(nn.Module):
         self.decoders = nn.ModuleList()
 
         # Első szint csatornáinak számolása
-        inFeat, oFeat = 3, nFeat
+        oFeat = nFeat
 
         # Minden enkóder hozzáadása
         for _ in range(nLevels - 1):

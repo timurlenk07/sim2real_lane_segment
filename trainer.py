@@ -93,7 +93,7 @@ def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, 
     valAccs = []
 
     if verbose:
-        print(f"Tanítás indul. Paraméterek száma: {net.getNParams()}")
+        logging.info(f"Tanítás indul. Paraméterek száma: {net.getNParams()}")
 
     # Save best model
     maxAcc = 0
@@ -113,8 +113,8 @@ def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, 
 
         # Tanításról információ kiírása
         if verbose:
-            print(f"Epoch {epoch + 1}: A tanítási költség {trLoss:.3f}, a tanítási pontosság {trAcc:.2f}%")
-            print(f"Epoch {epoch + 1}: A validációs költség {valLoss:.3f}, a validációs pontosság {valAcc:.2f}%")
+            logging.info(f"Epoch {epoch + 1}: A tanítási költség {trLoss:.3f}, a tanítási pontosság {trAcc:.2f}%")
+            logging.info(f"Epoch {epoch + 1}: A validációs költség {valLoss:.3f}, a validációs pontosság {valAcc:.2f}%")
 
         # Tanulási ráta ütemező léptetése
         scheduler.step()
@@ -131,7 +131,7 @@ def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, 
 
     # Befejezéskor információk kiírása
     if verbose:
-        print('Tanítás befejezve.')
+        logging.info('Tanítás befejezve.')
         fig, (ax1, ax2) = plt.subplots(2)
         ax1.plot(trLosses, label='Training')
         ax1.plot(valLosses, label='Validation')

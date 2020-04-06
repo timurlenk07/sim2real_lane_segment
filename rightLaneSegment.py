@@ -17,6 +17,8 @@ class MyTransform:
     def __call__(self, img, label):
         if self.grayscale:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = np.expand_dims(img, -1)
+
         img = torch.from_numpy(img.transpose((2, 0, 1)))
         img = img.float().div(255)
 
@@ -38,8 +40,8 @@ class MyTransform:
         return img, label
 
 
-def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
-                   dropOut=0.3, bSize=32, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4,
+def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True, dropOut=0.3,
+                   grayscale=False, bSize=32, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4,
                    verbose=False, setSeeds=True):
     # A függvény ismételt futtatása esetén ugyanazokat az eredményeket adja
     if setSeeds:
@@ -50,11 +52,12 @@ def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True,
             torch.backends.cudnn.benchmark = False
 
     # Létrehozzuk a hálózatunkat (lehetőség szerint GPU-n); az osztályok száma adott az adatbázis miatt!
-    net = EncDecNet(nFeat, nLevels, kernelSize, nLinType, bNorm, dropOut, inFeat=3)
+    inFeat = 1 if grayscale else 3
+    net = EncDecNet(nFeat, nLevels, kernelSize, nLinType, bNorm, dropOut, inFeat=inFeat)
     if haveCuda:
         net = net.cuda()
 
-    datasets = getRightLaneDatasets('./data', transform=MyTransform(False))
+    datasets = getRightLaneDatasets('./data', transform=MyTransform(grayscale))
 
     # Adatbetöltők lekérése adott batch mérettel
     dataloaders = getDataLoaders(datasets, bSize)
@@ -95,15 +98,17 @@ if __name__ == '__main__':
 
     import logging
 
-    logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
+    logging.basicConfig(  # handlers=[logging.FileHandler(filename='./results/log', encoding='utf-8', mode='w')],
+        level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
-    bestAcc, net = trainEncDecNet(16, 4, 5, 'leakyRelu', bSize=512, verbose=True, numEpoch=1)
-    print(f"A teszt adatokon elért pontosság: {bestAcc:.2f}%")
+    useGrayscale = True
+    bestAcc, net = trainEncDecNet(8, 3, 5, 'leakyRelu', grayscale=useGrayscale, bSize=512, verbose=True, numEpoch=100)
+    logging.info(f"Test set accuracy: {bestAcc:.2f}% ")
     torch.save(net.state_dict(), './results/EncDecNet.pth')
 
     # Print some example predictions
     net.load_state_dict(torch.load('./results/EncDecNet.pth'))
     net.eval()
-    datasets = getRightLaneDatasets('./data', (160, 120), transform=MyTransform(False))
+    datasets = getRightLaneDatasets('./data', (160, 120), transform=MyTransform(useGrayscale))
     _, _, trainLoader = getDataLoaders(datasets, 8)
     makeExamples(net, trainLoader, 5)

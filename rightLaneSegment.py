@@ -15,14 +15,16 @@ class MyTransform:
         self.grayscale = grayscale
 
     def __call__(self, img, label):
-        if self.grayscale:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = np.expand_dims(img, -1)
+        if img is not None:
+            if self.grayscale:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                img = np.expand_dims(img, -1)
 
-        img = torch.from_numpy(img.transpose((2, 0, 1)))
-        img = img.float().div(255)
+            img = torch.from_numpy(img.transpose((2, 0, 1)))
+            img = img.float().div(255)
 
-        label = torch.from_numpy(label).long() / 255
+        if label is not None:
+            label = torch.from_numpy(label).long() / 255
 
         return img, label
 
@@ -30,12 +32,14 @@ class MyTransform:
         return self.__class__.__name__ + '()'
 
     def doInverse(self, img, label):
-        img = img.mul(255).byte()
-        img = img.numpy().transpose((1, 2, 0))
-        if self.grayscale:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        if img is not None:
+            img = img.mul(255).byte()
+            img = img.numpy().transpose((1, 2, 0))
+            if self.grayscale:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-        label = label.mul(255).byte().numpy()
+        if label is not None:
+            label = label.mul(255).byte().numpy()
 
         return img, label
 
@@ -98,8 +102,8 @@ if __name__ == '__main__':
 
     import logging
 
-    logging.basicConfig(  # handlers=[logging.FileHandler(filename='./results/log', encoding='utf-8', mode='w')],
-        level=logging.INFO, format='[%(levelname)s]: %(message)s')
+    logging.basicConfig(filename='./results/log', filemode='w',
+                        level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
     useGrayscale = True
     bestAcc, net = trainEncDecNet(8, 3, 5, 'leakyRelu', grayscale=useGrayscale, bSize=512, verbose=True, numEpoch=100)

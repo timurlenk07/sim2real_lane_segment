@@ -1,3 +1,4 @@
+import logging
 import os
 
 import matplotlib.pyplot as plt
@@ -153,8 +154,6 @@ def trainNet(net, dataLoaders, lr=1e-3, lr_ratio=1000, numEpoch=50, decay=1e-4, 
 
 if __name__ == '__main__':
     assert torch.cuda.device_count() <= 1
-
-    import logging
 
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 

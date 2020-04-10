@@ -78,7 +78,5 @@ url = ["https://gateway.ipfs.io/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7
 
        ]
 
-with tqdm(total=len(url)) as bar:
-       for i in range(len(url)):
-              wget.download(url[i], 'duckietown_real_' + str(i) + '.mp4')
-              bar.update(1)
+for i in tqdm(range(len(url))):
+       wget.download(url[i], 'duckietown_real_' + str(i) + '.mp4')

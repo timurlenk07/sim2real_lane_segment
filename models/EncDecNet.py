@@ -76,22 +76,22 @@ class EncDecNet(nn.Module):
         oFeat = nFeat
 
         # Minden enkóder hozzáadása
-        for _ in range(nLevels - 1):
+        for _ in range(nLevels):
             layer = Conv(inFeat, oFeat, kernelSize=kernelSize, activation=self.activation, bNorm=bNorm, dropOut=dropOut)
             self.encoders.append(layer)
             inFeat = oFeat
-            oFeat = 2*oFeat
+            oFeat = 2 * oFeat
 
 
         # Csatornák újraszámolása
         oFeat = oFeat//2
 
         # Minden enkóder hozzáadása
-        for _ in range(nLevels - 1):
+        for _ in range(nLevels):
             layer = Conv(inFeat, oFeat, kernelSize=kernelSize, activation=self.activation, bNorm=bNorm, dropOut=dropOut)
             self.decoders.append(layer)
             inFeat = oFeat
-            oFeat = oFeat//2
+            oFeat = oFeat // 2
 
         # Pixelenként következtetés, Sigmoid aktiváció
         self.classifier = Conv(inFeat, 2, kernelSize=1, activation=nn.Softmax(dim=-3), bNorm=False, dropOut=0)

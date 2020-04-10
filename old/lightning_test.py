@@ -209,6 +209,6 @@ if __name__ == '__main__':
 
     net = EncDecNetLightning(4, 2, 5, 'leakyRelu', batchSize=128)
     trainer = pl.Trainer(gpus=1, max_nb_epochs=15, progress_bar_refresh_rate=2,
-                         default_save_path='./results', weights_save_path='./results/EncDecNet.pth')
+                         default_save_path='../results', weights_save_path='../results/EncDecNet.pth')
     trainer.fit(net)
     trainer.test(net)

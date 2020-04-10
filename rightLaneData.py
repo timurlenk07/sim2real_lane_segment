@@ -84,6 +84,7 @@ def video2images(directory, transform=None, deleteProcessed=False):
 
 class RightLaneImagesDataset(Dataset):
     def __init__(self, dataPath, transform=None, shouldPreprocess=False, preprocessTransform=None):
+        super().__init__()
 
         self._input_dir = os.path.join(dataPath, 'orig')
         self._target_dir = os.path.join(dataPath, 'annot')

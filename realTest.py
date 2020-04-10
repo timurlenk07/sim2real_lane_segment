@@ -15,9 +15,10 @@ img_paths = sorted(glob.glob('train/*.npy'))
 random.shuffle(img_paths)
 img_paths = img_paths[:showCount]
 
-transform = MyTransform(grayscale=True)
-net = EncDecNet(8, 3, 5, 'leakyRelu', inFeat=1)
+transform = MyTransform(grayscale=False)
+net = EncDecNet(16, 3, 5, 'leakyRelu', inFeat=3)
 net.load_state_dict(torch.load('./results/EncDecNet.pth'))
+net.eval()
 
 finalResult = np.empty([0, 320, 3], dtype=np.uint8)
 for i, img_path in enumerate(img_paths):

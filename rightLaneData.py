@@ -49,6 +49,7 @@ def video2images(directory, newRes):
             if not ret_o or not ret_a:
                 break
 
+            frame_o = cv2.cvtColor(frame_o, cv2.COLOR_BGR2GRAY)  # Comment this to save RGB images
             frame_o = cv2.resize(frame_o, newRes, interpolation=cv2.INTER_LANCZOS4)
             frame_a = cv2.cvtColor(frame_a, cv2.COLOR_BGR2GRAY)
             frame_a = cv2.resize(frame_a, newRes, interpolation=cv2.INTER_LANCZOS4)

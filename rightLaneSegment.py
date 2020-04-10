@@ -61,7 +61,7 @@ def trainEncDecNet(nFeat, nLevels, kernelSize=3, nLinType='relu', bNorm=True, dr
     if haveCuda:
         net = net.cuda()
 
-    datasets = getRightLaneDatasets('./data', transform=MyTransform(grayscale))
+    datasets = getRightLaneDatasets('./data', newRes=(160, 120), transform=MyTransform(grayscale))
 
     # Adatbetöltők lekérése adott batch mérettel
     dataloaders = getDataLoaders(datasets, bSize)
@@ -105,8 +105,9 @@ if __name__ == '__main__':
     logging.basicConfig(filename='./results/log', filemode='w',
                         level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
-    useGrayscale = True
-    bestAcc, net = trainEncDecNet(8, 3, 5, 'leakyRelu', grayscale=useGrayscale, bSize=512, verbose=True, numEpoch=100)
+    useGrayscale = False
+    bestAcc, net = trainEncDecNet(16, 3, 5, 'leakyRelu', grayscale=useGrayscale, bSize=256,
+                                  verbose=True, numEpoch=200, lr=1e-3, dropOut=0.5)
     logging.info(f"Test set accuracy: {bestAcc:.2f}% ")
     torch.save(net.state_dict(), './results/EncDecNet.pth')
 

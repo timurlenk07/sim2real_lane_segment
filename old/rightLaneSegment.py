@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from network import EncDecNet
+from models.EncDecNet import EncDecNet
 from old.trainer import trainNet
 from rightLaneData import getRightLaneDatasets, getDataLoaders
 

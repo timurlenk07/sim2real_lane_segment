@@ -7,7 +7,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from network import Conv
+from models.EncDecNet import Conv
 from old.rightLaneSegment import MyTransform
 from rightLaneData import getRightLaneDatasets
 

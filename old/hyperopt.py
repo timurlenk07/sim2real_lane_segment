@@ -3,7 +3,7 @@ import math
 import torch
 from bayes_opt import BayesianOptimization
 
-from network import activationTypes
+from models.EncDecNet import activationTypes
 from old.rightLaneSegment import trainEncDecNet
 
 assert torch.cuda.device_count() <= 1

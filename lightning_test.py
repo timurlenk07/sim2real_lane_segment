@@ -8,8 +8,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from models.EncDecNet import Conv
-from old.rightLaneSegment import MyTransform
-from rightLaneData import getRightLaneDatasets
+from rightLaneData import getRightLaneDatasets, LoadedTransform, SavedTransform
 
 activationDict = nn.ModuleDict({
     'relu': nn.ReLU(),
@@ -21,8 +20,6 @@ activationDict = nn.ModuleDict({
 })
 activationTypes = list(activationDict.keys())
 
-lr = 1e-3
-decay = 1e-4
 
 
 class EncDecNetLightning(pl.LightningModule):
@@ -33,6 +30,9 @@ class EncDecNetLightning(pl.LightningModule):
 
         self.criterion = nn.CrossEntropyLoss()
         self.batchSize = batchSize
+        self.dataSets = None
+        self.lr = 1e-3
+        self.decay = 1e-4
 
         self.__buildModel(nFeat=nFeat, nLevels=nLevels, kernelSize=kernelSize,
                           nLinType=nLinType, bNorm=bNorm, dropOut=dropOut, inFeat=inFeat)
@@ -97,7 +97,11 @@ class EncDecNetLightning(pl.LightningModule):
         return x
 
     def prepare_data(self):
-        self.dataSets = getRightLaneDatasets('./data', (160, 120), MyTransform(grayscale=False))
+        self.dataSets = getRightLaneDatasets('./data',
+                                             transform=LoadedTransform(grayscale=True, newRes=(160, 120)),
+                                             shouldPreprocess=True,
+                                             preprocessTransform=SavedTransform(grayscale=True, newRes=(160, 120)),
+                                             )
 
     def train_dataloader(self):
         return DataLoader(self.dataSets[0], batch_size=self.batchSize, shuffle=True)
@@ -109,8 +113,8 @@ class EncDecNetLightning(pl.LightningModule):
         return DataLoader(self.dataSets[2], batch_size=self.batchSize, shuffle=False)
 
     def configure_optimizers(self):
-        optimizer = Adam(net.parameters(), lr=lr, weight_decay=decay)
-        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=lr / 1000)
+        optimizer = Adam(net.parameters(), lr=self.lr, weight_decay=self.decay)
+        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / 1000)
         return [optimizer], [scheduler]
 
     def training_step(self, batch, batch_idx):

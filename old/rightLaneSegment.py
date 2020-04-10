@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 
 from network import EncDecNet
+from old.trainer import trainNet
 from rightLaneData import getRightLaneDatasets, getDataLoaders
-from trainer import trainNet
 
 haveCuda = torch.cuda.is_available()
 
@@ -94,7 +94,7 @@ def makeExamples(net: nn.Module, testLoader, printNum):
         result = np.concatenate((img, pred, label), axis=1)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
-    cv2.imwrite('./results/preds.png', finalResult)
+    cv2.imwrite('../results/preds.png', finalResult)
 
 
 if __name__ == '__main__':
@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
     import logging
 
-    logging.basicConfig(filename='./results/log', filemode='w',
+    logging.basicConfig(filename='../results/log', filemode='w',
                         level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
     useGrayscale = False

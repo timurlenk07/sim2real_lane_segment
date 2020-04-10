@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import torch
 
-from rightLaneSegment import MyTransform, EncDecNet
+from old.rightLaneSegment import MyTransform, EncDecNet
 
 assert torch.cuda.device_count() <= 1
 

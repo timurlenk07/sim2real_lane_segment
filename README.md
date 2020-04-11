@@ -9,13 +9,13 @@ For more information on how the data collection and preprocessing was done, plea
 ### Example training data
 Data pair 1:
 
-![orig_1](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/examples/orig_1.jpg)
-![annot_1](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/examples/annot_1.jpg)
+![doc/res_readme/orig_1](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/doc/res_readme/orig_1.jpg)
+![doc/res_readme/annot_1](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/doc/res_readme/annot_1.jpg)
 
 Data pair 2:
 
-![orig_2](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/examples/orig_2.jpg)
-![annot_2](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/examples/annot_2.jpg)
+![doc/res_readme/orig_2](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/doc/res_readme/orig_2.jpg)
+![doc/res_readme/annot_2](https://raw.githubusercontent.com/DeepTesla/deep_learning_hf/data/doc/res_readme/annot_2.jpg)
 
 ## Simple notebook for basic training of a selected neural network
 In the notebook [network.ipynb](https://github.com/DeepTesla/deep_learning_hf/blob/master/network.ipynb) we provide an example how our network training process works. All notebooks were run in Google Colab using default packages.

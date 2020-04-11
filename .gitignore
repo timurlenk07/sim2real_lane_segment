@@ -1,6 +1,9 @@
-.vscode
-.idea
-.ipynb_checkpoints
-.vs
+*.DS_Store
+*.pyc
+*.egg-info
+.idea/
+.vscode/
+.vs/
+.ipynb_checkpoints/*
 .data
 **/__pycache__/*

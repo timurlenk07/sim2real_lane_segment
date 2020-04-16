@@ -15,10 +15,12 @@ For more information on how the data collection and preprocessing was done, plea
 
 ### Example training data
 Data pair 1:
+
 ![Original](doc/res_readme/orig_1.jpg)
 ![Annotated](doc/res_readme/annot_1.jpg)
 
 Data pair 2:
+
 ![Original](doc/res_readme/orig_2.jpg)
 ![Annotated](doc/res_readme/annot_2.jpg)
 

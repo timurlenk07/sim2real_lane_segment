@@ -1,6 +1,5 @@
 import concurrent.futures
 import glob
-import itertools
 import logging
 import os
 
@@ -83,18 +82,15 @@ def video2images(directory, transform=None, deleteProcessed=False):
 
 
 class RightLaneImagesDataset(Dataset):
-    def __init__(self, dataPath, transform=None, shouldPreprocess=False, preprocessTransform=None):
+    def __init__(self, dataPath, transform=None):
         super().__init__()
 
         self._input_dir = os.path.join(dataPath, 'orig')
         self._target_dir = os.path.join(dataPath, 'annot')
 
-        # In case no input or target exist, try to do preprocessing
+        # In case no input or target exist, raise ValueError
         if not os.path.exists(self._input_dir) or not os.path.exists(self._target_dir):
-            shouldPreprocess = True
-
-        if shouldPreprocess:
-            video2images(dataPath, preprocessTransform, deleteProcessed=False)
+            raise ValueError(f"Directory structure under {dataPath} is not complete!")
 
         self._data_cnt = len(glob.glob(os.path.join(self._input_dir, '*.png')))
         if self._data_cnt != len(glob.glob(os.path.join(self._target_dir, '*.png'))):
@@ -129,18 +125,22 @@ def getRightLaneDatasets(dataPath, transform=None, shouldPreprocess=False, prepr
     dataPaths = [train_dir, valid_dir, test_dir]
 
     for i, directory in enumerate(dataPaths):
-        # assert directory already exist (else there would be no data)
+        # Assert directory already exist (else there would be no data)
         if not os.path.exists(directory):
             raise FileNotFoundError(f"Directory {directory} does not exist!")
 
-    transforms = list(itertools.repeat(transform, len(dataPaths)))
-    shouldPreprocess = list(itertools.repeat(shouldPreprocess, len(dataPaths)))
-    preprocessTransform = list(itertools.repeat(preprocessTransform, len(dataPaths)))
+        # In case no input or target exist, try to do preprocessing
+        input_dir = os.path.join(dataPath, 'orig')
+        target_dir = os.path.join(dataPath, 'annot')
+        if not os.path.exists(input_dir) or not os.path.exists(target_dir):
+            shouldPreprocess = True
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        datasets = executor.map(RightLaneImagesDataset, dataPaths, transforms, shouldPreprocess, preprocessTransform)
+    if shouldPreprocess:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(video2images, dataPath, preprocessTransform, False) for dataPath in dataPaths]
+            concurrent.futures.as_completed(futures)
 
-    datasets = tuple(datasets)
+    datasets = (RightLaneImagesDataset(dataPath, transform) for dataPath in dataPaths)
 
     return datasets
 
@@ -215,11 +215,6 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 
     # Adatbázis építés
-    datasetParams = {
-        'transform': SavedTransform(grayscale=False, newRes=(160, 120)),
-        'shouldPreprocess': False,
-        'preprocessTransform': LoadedTransform(grayscale=True, newRes=(80, 60)),
-    }
     datasets = getRightLaneDatasets('./data',
                                     transform=LoadedTransform(grayscale=False, newRes=(160, 120)),
                                     shouldPreprocess=True,

@@ -9,7 +9,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from models.EncDecNet import EncDecNet
+from models.FCDenseNet.tiramisu import FCDenseNet57
 from rightLaneData import getRightLaneDatasets, LoadedTransform, SavedTransform
 
 
@@ -28,8 +28,7 @@ class RightLaneModule(pl.LightningModule):
         self.lrRatio = hparams.lrRatio
 
         inFeat = 3 if not self.grayscale else 1
-        self.net = EncDecNet(nFeat=hparams.nFeat, nLevels=hparams.nLevels, kernelSize=hparams.kernelSize,
-                             nLinType=hparams.nLinType, bNorm=hparams.batchNorm, dropOut=hparams.dropOut, inFeat=inFeat)
+        self.net = FCDenseNet57(2)
 
     def forward(self, x):
         return self.net(x)
@@ -159,9 +158,10 @@ def main(args):
 
     # makes use of pre-defined options
     trainer = pl.Trainer(gpus=1, max_epochs=args.numEpochs, progress_bar_refresh_rate=2,
-                         default_save_path='./results', weights_save_path='./results/EncDecNet.pth')
+                         default_save_path='results')
 
     trainer.fit(model)
+    trainer.save_checkpoint('./results/FCDenseNet57.ckpt')
     trainer.test(model)
 
 
@@ -179,13 +179,7 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=120)
     parser.add_argument('--doPreprocess', action='store_true')
 
-    parser.add_argument('--nFeat', type=int, default=16)
-    parser.add_argument('--nLevels', type=int, default=2)
-    parser.add_argument('--kernelSize', type=int, default=3)
     parser.add_argument('--batchSize', type=int, default=256)
-    parser.add_argument('--nLinType', type=str, default='relu')
-    parser.add_argument('--batchNorm', type=bool, default=True)
-    parser.add_argument('--dropOut', type=float, default=0.3)
     parser.add_argument('--learningRate', type=float, default=1e-3)
     parser.add_argument('--decay', type=float, default=1e-4)
     parser.add_argument('--lrRatio', type=float, default=1000)

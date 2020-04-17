@@ -33,7 +33,7 @@ def video2images(directory, transform=None, haveLabels=True, deleteProcessed=Fal
     img_counter = 0
     # Iterate and postprocess every recording
     for input_vid, label_vid in zip_longest(input_vids, label_vids):
-        assert label_vid is not None and haveLabels
+        assert label_vid is not None if haveLabels else True
 
         # Open recordings...
         input_cap = cv2.VideoCapture(input_vid)

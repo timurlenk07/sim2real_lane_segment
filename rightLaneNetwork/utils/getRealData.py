@@ -1,3 +1,9 @@
+import argparse
+import glob
+import os.path
+import random
+
+import cv2
 import wget
 from tqdm import tqdm
 
@@ -75,8 +81,49 @@ url = ["https://gateway.ipfs.io/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7
        "https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/96c345e2985ea2e2308e7ad978a0b85cb803c4c0f3ad30f781f1ebe7c3c40a07",
        "https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/fc2119165e42f660bf3c244030fc172fab67c8b1b5cfbd953fa1559c970c4d5c",
        "https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/53fda47da15c110b51b982683d9d6325cdc594cb4e0e1d08eb8c22f90ddaf065",
-
        ]
 
-for i in tqdm(range(len(url))):
-       wget.download(url[i], 'duckietown_real_' + str(i) + '.mp4')
+
+def download_videos(download_path):
+    for i in tqdm(range(len(url))):
+        file_path = os.path.join(download_path, f'dt_real_{i:03d}.mp4')
+        wget.download(url[i], file_path)
+
+
+def saveAsImages(save_path, num_images):
+    files = sorted(glob.glob(os.path.join(save_path, '*.mp4')))
+    videoset = [None]
+
+    print("Reading and joining videos")
+    for file in tqdm(files):
+        cap = cv2.VideoCapture(file)
+        while cap.isOpened():
+            is_ok, frame = cap.read()
+            if not is_ok:
+                break
+            videoset.append(frame)
+        cap.release()
+        os.remove(file)
+    print("Total number of frames = ", len(videoset))
+
+    print("Generating random samples and saving as .png images")
+    if num_images >= 0:
+        videoset = random.sample(videoset, num_images)
+
+    for i, frame in enumerate(tqdm(videoset)):
+        filename = f"{save_path}/dt_real_{i:05d}.png"
+        cv2.imwrite(filename, frame)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--num_images', type=int, default=100)
+    parser.add_argument('--save_path', type=str, default="realData")
+    parser.add_argument('--as_videos', action='store_true')
+    args = parser.parse_args()
+
+    os.makedirs(args.save_path, exist_ok=True)
+
+    download_videos(args.save_path)
+    if not args.as_videos:
+        saveAsImages(args.save_path, args.num_images)

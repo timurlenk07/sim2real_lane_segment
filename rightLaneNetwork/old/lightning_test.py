@@ -7,8 +7,9 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
+from dataManagement.basicTransforms import SavedTransform, LoadedTransform
+from dataManagement.getData import getRightLaneDatasets
 from models.EncDecNet import Conv
-from rightLaneData import getRightLaneDatasets, LoadedTransform, SavedTransform
 
 activationDict = nn.ModuleDict({
     'relu': nn.ReLU(),

@@ -8,7 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
-from rightLaneData import getRightLaneDatasets, getDataLoaders
+from dataManagement.getData import getRightLaneDatasets, getDataLoaders
 
 haveCuda = torch.cuda.is_available()
 

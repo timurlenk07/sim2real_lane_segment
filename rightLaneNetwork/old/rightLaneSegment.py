@@ -3,9 +3,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from dataManagement.getData import getRightLaneDatasets, getDataLoaders
 from models.EncDecNet import EncDecNet
 from old.trainer import trainNet
-from rightLaneData import getRightLaneDatasets, getDataLoaders
 
 haveCuda = torch.cuda.is_available()
 

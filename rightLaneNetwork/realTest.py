@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from RightLaneModule import RightLaneModule
-from rightLaneData import LoadedTransform
+from dataManagement.basicTransforms import LoadedTransform
 
 assert torch.cuda.device_count() <= 1
 

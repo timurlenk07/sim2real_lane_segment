@@ -1,77 +1,94 @@
 import glob
 import logging
 import os
+from itertools import zip_longest
 
 import cv2
 
 
-def video2images(directory, transform=None, deleteProcessed=False):
+def video2images(directory, transform=None, haveLabels=True, deleteProcessed=False):
     logging.info(f"Managing directory: {directory}")
 
     # Get the list of available recordings
-    annot_vids = sorted(glob.glob(os.path.join(directory, '*_annot_pp.avi')))
-    orig_vids = sorted(glob.glob(os.path.join(directory, '*_orig_pp.avi')))
+    input_vids = sorted(glob.glob(os.path.join(directory, '*_orig_pp.avi')))
+    label_vids = sorted(glob.glob(os.path.join(directory, '*_annot_pp.avi')))
 
     # Check whether original and annotated recordings number match or not
-    if len(annot_vids) != len(orig_vids):
+    if haveLabels and len(input_vids) != len(label_vids):
         raise RuntimeError(f"Different number of input and target videos!")
 
-    logging.info(f"{directory} Number of files found: {len(annot_vids)}. Taking apart video files...")
+    os.makedirs(os.path.join(directory, 'input'), exist_ok=True)
+    if haveLabels:
+        os.makedirs(os.path.join(directory, 'label'), exist_ok=True)
 
-    os.makedirs(os.path.join(directory, 'orig'), exist_ok=True)
-    os.makedirs(os.path.join(directory, 'annot'), exist_ok=True)
+    if len(input_vids) == 0:
+        logging.info(f"{directory}: No data found. You might want to check if this is an intended behaviour.")
+        return 0
+
+    if not haveLabels:
+        logging.info(f"{directory}: No labels found. You might want to check if this is an intended behaviour.")
+
+    logging.info(f"{directory} Number of files found: {len(input_vids)}. Taking apart video files...")
 
     img_counter = 0
     # Iterate and postprocess every recording
-    for vid_a, vid_o in zip(annot_vids, orig_vids):
+    for input_vid, label_vid in zip_longest(input_vids, label_vids):
+        assert label_vid is not None and haveLabels
 
         # Open recordings...
-        cap_orig = cv2.VideoCapture(vid_o)
-        cap_annot = cv2.VideoCapture(vid_a)
-        if not cap_orig.isOpened() or not cap_annot.isOpened():
-            unopened = cap_orig if not cap_orig.isOpened() else cap_annot
+        input_cap = cv2.VideoCapture(input_vid)
+        if haveLabels:
+            label_cap = cv2.VideoCapture(label_vid)
+
+        if not input_cap.isOpened() or (haveLabels and not label_cap.isOpened()):
+            unopened = input_vid if not input_cap.isOpened() else label_vid
             logging.warning(f"Could not open file {unopened}! Continuing...", )
             continue
 
         # Check whether recordings hold the same number of frames
-        if cap_orig.get(cv2.CAP_PROP_FRAME_COUNT) != cap_annot.get(cv2.CAP_PROP_FRAME_COUNT):
-            logging.warning(f"Different video length encountered at: {cap_orig}! Continuing...")
+        if haveLabels and input_cap.get(cv2.CAP_PROP_FRAME_COUNT) != label_cap.get(cv2.CAP_PROP_FRAME_COUNT):
+            logging.warning(f"Different video length encountered at: {input_vid}! Continuing...")
             continue
 
         # Produce output videos
-        logging.debug(f"Processing recording: {vid_o}...")
-        while cap_orig.isOpened() and cap_annot.isOpened():  # Iterate through every frame
-            ret_o, frame_o = cap_orig.read()
-            ret_a, frame_a = cap_annot.read()
-            if not ret_o or not ret_a:
+        logging.debug(f"Processing recording: {input_vid}...")
+        while input_cap.isOpened():  # Iterate through every frame
+            ret_i, input_frame = input_cap.read()
+            if haveLabels:
+                ret_l, label_frame = label_cap.read()
+            if not ret_i or (haveLabels and not ret_l):
                 break
 
-            # Convert annotated to grayscale
-            frame_a = cv2.cvtColor(frame_a, cv2.COLOR_BGR2GRAY)
+            if haveLabels:
+                # Convert annotated to grayscale
+                label_frame = cv2.cvtColor(label_frame, cv2.COLOR_BGR2GRAY)
 
             if transform is not None:
-                frame_o, frame_a = transform(frame_o, frame_a)
-
-            filename = f'{img_counter:06d}.png'
-            filepath_o = os.path.join(directory, 'orig', filename)
-            filepath_a = os.path.join(directory, 'annot', filename)
+                if haveLabels:
+                    input_frame, label_frame = transform(input_frame, label_frame)
+                else:
+                    input_frame, _ = transform(input_frame, None)
 
             # Save both frames in new file
-            cv2.imwrite(filepath_o, frame_o)
-            cv2.imwrite(filepath_a, frame_a)
+            filename = f'{img_counter:06d}.png'
+            filepath_o = os.path.join(directory, 'input', filename)
+            cv2.imwrite(filepath_o, input_frame)
+            if haveLabels:
+                filepath_a = os.path.join(directory, 'label', filename)
+                cv2.imwrite(filepath_a, label_frame)
 
             img_counter += 1
 
-        logging.debug(f"Processing of recording done for: {vid_o}")
+        logging.debug(f"Processing of recording done for: {input_vid}")
 
         # Release VideoCapture resources
-        cap_orig.release()
-        cap_annot.release()
+        input_cap.release()
+        label_cap.release()
 
         # Delete processed videos upon request
         if deleteProcessed:
-            os.remove(vid_a)
-            os.remove(vid_o)
+            os.remove(input_vid)
+            os.remove(label_vid)
 
-    logging.info(f"Video files taken apart in {directory}! Images generated: {img_counter}")
+    logging.info(f"{directory}: Video files taken apart! Images generated: {img_counter}")
     return img_counter

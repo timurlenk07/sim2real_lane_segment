@@ -86,7 +86,7 @@ url = ["https://gateway.ipfs.io/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7
 
 def download_videos(download_path):
     for i in tqdm(range(len(url))):
-        file_path = os.path.join(download_path, f'dt_real_{i:03d}.mp4')
+        file_path = os.path.join(download_path, f'{i:03d}.mp4')
         wget.download(url[i], file_path)
 
 
@@ -101,7 +101,8 @@ def saveAsImages(save_path, num_images):
             is_ok, frame = cap.read()
             if not is_ok:
                 break
-            videoset.append(frame)
+            if frame is not None and frame.size != 0:
+                videoset.append(frame)
         cap.release()
         os.remove(file)
     print("Total number of frames = ", len(videoset))
@@ -111,18 +112,21 @@ def saveAsImages(save_path, num_images):
         videoset = random.sample(videoset, num_images)
 
     for i, frame in enumerate(tqdm(videoset)):
-        filename = f"{save_path}/dt_real_{i:05d}.png"
-        cv2.imwrite(filename, frame)
+        filename = os.path.join(save_path, f"{i:06d}.png")
+        if frame is not None and frame.size != 0:
+            cv2.imwrite(filename, frame)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_images', type=int, default=100)
-    parser.add_argument('--save_path', type=str, default="realData")
+    parser.add_argument('--save_path', type=str, default="./realData")
     parser.add_argument('--as_videos', action='store_true')
     args = parser.parse_args()
 
     os.makedirs(args.save_path, exist_ok=True)
+
+    print(f"Got arguments: num_images={args.num_images}, save_path={args.save_path}")
 
     download_videos(args.save_path)
     if not args.as_videos:

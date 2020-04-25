@@ -18,7 +18,8 @@ class RightLaneDataset(Dataset):
             self._target_dir = os.path.join(dataPath, 'label')
 
         # In case no input or target exist, raise ValueError
-        if not os.path.exists(self._input_dir) or (haveLabels and not os.path.exists(self._target_dir)):
+        if not os.path.exists(self._input_dir) \
+                or (haveLabels and not os.path.exists(self._target_dir)):
             raise ValueError(f"Directory structure under {dataPath} is not complete!")
 
         self._data_cnt = len(glob.glob(os.path.join(self._input_dir, '*.png')))
@@ -39,7 +40,7 @@ class RightLaneDataset(Dataset):
         if self.haveLabels:
             y = cv2.imread(os.path.join(self._target_dir, filename), cv2.IMREAD_GRAYSCALE)
         else:
-            y = None
+            y = torch.empty(0)
 
         if self.transform is not None:
             x, y = self.transform(x, y)
@@ -60,10 +61,4 @@ class ParallelDataset(Dataset):
         x1, y1 = self.dsA[index % len(self.dsA)]
         x2, y2 = self.dsB[index % len(self.dsB)]
 
-        x = torch.cat([x1, x2], dim=0)
-        if y2 is not None:
-            y = torch.cat([y1, y2], dim=0)
-        else:
-            y = y1
-
-        return x, y
+        return x1, x2, y1, y2

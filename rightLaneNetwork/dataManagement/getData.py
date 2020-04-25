@@ -1,7 +1,5 @@
 import os
 
-import torch
-
 from .myDatasets import RightLaneDataset
 
 
@@ -25,10 +23,3 @@ def getRightLaneDatasetsMME(dataPath, transform=None):
     labelled = [True, True, False, True]
 
     return tuple(RightLaneDataset(dataPath, transform, haveLabels) for dataPath, haveLabels in zip(dataPaths, labelled))
-
-
-def getDataLoaders(datasets, batchSize=128):
-    trainLoader = torch.utils.data.DataLoader(datasets[0], batch_size=batchSize, shuffle=True)
-    validLoader = torch.utils.data.DataLoader(datasets[1], batch_size=batchSize, shuffle=True)
-    testLoader = torch.utils.data.DataLoader(datasets[2], batch_size=batchSize, shuffle=True)
-    return trainLoader, validLoader, testLoader

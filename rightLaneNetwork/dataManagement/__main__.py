@@ -3,8 +3,10 @@ import logging
 import torch
 import torchvision.transforms.functional as TF
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from .getData import getRightLaneDatasets, getRightLaneDatasetsMME
+from .myDatasets import ParallelDataset
 
 assert torch.cuda.device_count() <= 1
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
@@ -13,14 +15,18 @@ haveCuda = torch.cuda.is_available()
 
 def myTransformation(img, label):
     newRes = (120, 160)
-    if img is not None:
-        img = TF.to_grayscale(img)
-        img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
-        img = TF.to_tensor(img)
-    if label is not None:
+    img = TF.to_pil_image(img)
+    img = TF.to_grayscale(img)
+    img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
+    img = TF.to_tensor(img)
+
+    if label is not None and len(label.shape) >= 2:
+        label = TF.to_pil_image(label)
         label = TF.resize(label, newRes, interpolation=Image.LANCZOS)
-        label[label > 127] = 255
-        label = TF.to_tensor(label)
+        label = TF.to_tensor(label).squeeze()
+        label[label > 0.5] = 1
+        label[label != 1] = 0
+        label = label.long()
 
     return img, label
 
@@ -58,6 +64,14 @@ def makeTestsMME():
     print(torch.mean(x))
     print(torch.min(x), torch.min(y))
     print(torch.max(x), torch.max(y))
+
+    pd = ParallelDataset(sourceSet, targetUnlabelledSet)
+    dl = DataLoader(pd, 4, False)
+    batch = next(iter(dl))
+    print(type(batch))
+    print(len(batch))
+    a, b, c, d = batch
+    print(a.shape, b.shape, c.shape, d.shape)
 
 
 makeTestsMME()

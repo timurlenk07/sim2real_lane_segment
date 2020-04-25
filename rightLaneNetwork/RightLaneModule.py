@@ -1,4 +1,3 @@
-import shutil
 from argparse import ArgumentParser
 from collections import OrderedDict
 
@@ -157,13 +156,6 @@ class RightLaneModule(pl.LightningModule):
 
 
 def main(args):
-    if args.doPreprocess:
-        shutil.rmtree('./data/train/orig')
-        shutil.rmtree('./data/train/annot')
-        shutil.rmtree('./data/validation/orig')
-        shutil.rmtree('./data/validation/annot')
-        shutil.rmtree('./data/test/orig')
-        shutil.rmtree('./data/test/annot')
 
     model = RightLaneModule(hparams=args)
 
@@ -191,7 +183,6 @@ if __name__ == '__main__':
     parser.add_argument('--grayscale', action='store_true')
     parser.add_argument('--width', type=int, default=160)
     parser.add_argument('--height', type=int, default=120)
-    parser.add_argument('--doPreprocess', action='store_true')
 
     parser.add_argument('--batchSize', type=int, default=32)
     parser.add_argument('--learningRate', type=float, default=1e-3)

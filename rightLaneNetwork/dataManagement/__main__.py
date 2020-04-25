@@ -1,8 +1,9 @@
 import logging
 
 import torch
+import torchvision.transforms.functional as TF
+from PIL import Image
 
-from .basicTransforms import SavedTransform, LoadedTransform
 from .getData import getRightLaneDatasets, getRightLaneDatasetsMME
 
 assert torch.cuda.device_count() <= 1
@@ -10,13 +11,23 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 haveCuda = torch.cuda.is_available()
 
 
+def myTransformation(img, label):
+    newRes = (120, 160)
+    if img is not None:
+        img = TF.to_grayscale(img)
+        img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
+        img = TF.to_tensor(img)
+    if label is not None:
+        label = TF.resize(label, newRes, interpolation=Image.LANCZOS)
+        label[label > 127] = 255
+        label = TF.to_tensor(label)
+
+    return img, label
+
+
 def makeTests():
     # Adatbázis építés
-    datasets = getRightLaneDatasets('./data',
-                                    transform=LoadedTransform(grayscale=False, newRes=(160, 120)),
-                                    shouldPreprocess=True,
-                                    preprocessTransform=SavedTransform(grayscale=True, newRes=(320, 240)),
-                                    )
+    datasets = getRightLaneDatasets('./data', transform=myTransformation)
     trainSet, validSet, testSet = datasets
     print(f"Dataset lengths: {len(trainSet)}, {len(validSet)}, {len(testSet)}")
 
@@ -33,11 +44,7 @@ def makeTests():
 
 def makeTestsMME():
     # Adatbázis építés
-    datasets = getRightLaneDatasetsMME('./data',
-                                       transform=LoadedTransform(grayscale=False, newRes=(160, 120)),
-                                       shouldPreprocess=True,
-                                       preprocessTransform=SavedTransform(grayscale=True, newRes=(320, 240)),
-                                       )
+    datasets = getRightLaneDatasetsMME('./data', transform=myTransformation)
     sourceSet, targetTrainSet, targetUnlabelledSet, targetTestSet = datasets
     print(f"Dataset lengths: {len(sourceSet)}, {len(targetTrainSet)}, " +
           f"{len(targetUnlabelledSet)}, {len(targetTestSet)}")

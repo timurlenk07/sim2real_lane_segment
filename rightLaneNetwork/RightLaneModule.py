@@ -5,13 +5,30 @@ from collections import OrderedDict
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torchvision.transforms.functional as TF
+from PIL import Image
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from dataManagement.basicTransforms import SavedTransform, LoadedTransform
 from dataManagement.getData import getRightLaneDatasets
 from models.FCDenseNet.tiramisu import FCDenseNet57
+
+
+def myTransformation(img, label):
+    newRes = (120, 160)
+    if img is not None:
+        img = TF.to_pil_image(img)
+        # img = TF.to_grayscale(img)
+        img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
+        img = TF.to_tensor(img)
+    if label is not None:
+        label = TF.to_pil_image(label)
+        label = TF.resize(label, newRes, interpolation=Image.LANCZOS)
+        label = label.point(lambda p: p > 127 and 255)
+        label = TF.to_tensor(label).squeeze().long()
+
+    return img, label
 
 
 class RightLaneModule(pl.LightningModule):
@@ -19,9 +36,9 @@ class RightLaneModule(pl.LightningModule):
         super().__init__()
 
         self.hparams = hparams
-        self.dataSets = None
+        self.trainSet, self.validSet, self.testSet = (None for _ in range(3))
 
-        self.grayscale = hparams.grayscale
+        self.grayscale = False  # hparams.grayscale
         self.criterion = nn.CrossEntropyLoss()
         self.batchSize = hparams.batchSize
         self.lr = hparams.learningRate
@@ -35,21 +52,17 @@ class RightLaneModule(pl.LightningModule):
         return self.net(x)
 
     def prepare_data(self):
-        self.dataSets = getRightLaneDatasets('./data',
-                                             transform=LoadedTransform(grayscale=self.grayscale, newRes=(160, 120)),
-                                             shouldPreprocess=False,
-                                             preprocessTransform=SavedTransform(grayscale=self.grayscale,
-                                                                                newRes=(160, 120)),
-                                             )
+        dataSets = getRightLaneDatasets('./data', transform=myTransformation)
+        self.trainSet, self.validSet, self.testSet = dataSets
 
     def train_dataloader(self):
-        return DataLoader(self.dataSets[0], batch_size=self.batchSize, shuffle=True, num_workers=4)
+        return DataLoader(self.trainSet, batch_size=self.batchSize, shuffle=True, num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.dataSets[1], batch_size=self.batchSize, shuffle=True, num_workers=4)
+        return DataLoader(self.validSet, batch_size=self.batchSize, shuffle=True, num_workers=8)
 
     def test_dataloader(self):
-        return DataLoader(self.dataSets[2], batch_size=self.batchSize, shuffle=False, num_workers=4)
+        return DataLoader(self.testSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
@@ -180,7 +193,7 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=120)
     parser.add_argument('--doPreprocess', action='store_true')
 
-    parser.add_argument('--batchSize', type=int, default=256)
+    parser.add_argument('--batchSize', type=int, default=32)
     parser.add_argument('--learningRate', type=float, default=1e-3)
     parser.add_argument('--decay', type=float, default=1e-4)
     parser.add_argument('--lrRatio', type=float, default=1000)

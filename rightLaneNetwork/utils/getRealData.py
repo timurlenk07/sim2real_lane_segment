@@ -92,7 +92,7 @@ def download_videos(download_path):
 
 def saveAsImages(save_path, num_images):
     files = sorted(glob.glob(os.path.join(save_path, '*.mp4')))
-    videoset = [None]
+    videoset = []
 
     print("Reading and joining videos")
     for file in tqdm(files):
@@ -113,8 +113,7 @@ def saveAsImages(save_path, num_images):
 
     for i, frame in enumerate(tqdm(videoset)):
         filename = os.path.join(save_path, f"{i:06d}.png")
-        if frame is not None and frame.size != 0:
-            cv2.imwrite(filename, frame)
+        cv2.imwrite(filename, frame)
 
 
 if __name__ == "__main__":

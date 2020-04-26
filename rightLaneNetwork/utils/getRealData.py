@@ -92,25 +92,22 @@ def download_videos(download_path):
 
 def saveAsImages(save_path, num_images):
     files = sorted(glob.glob(os.path.join(save_path, '*.mp4')))
-    videoset = []
+    framecount = 0
 
-    print("Reading and joining videos")
+    print("Counting frames...")
     for file in tqdm(files):
         cap = cv2.VideoCapture(file)
-        while cap.isOpened():
-            is_ok, frame = cap.read()
-            if not is_ok:
-                break
-            if frame is not None and frame.size != 0:
-                videoset.append(frame)
+        framecount += int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
         os.remove(file)
-    print("Total number of frames = ", len(videoset))
+    print("Total number of frames = ", framecount)
 
-    print("Generating random samples and saving as .png images")
+    videoset = list(range(framecount))
     if num_images >= 0:
+        print("Random sampling")
         videoset = random.sample(videoset, num_images)
 
+    print("Saving as .png images")
     for i, frame in enumerate(tqdm(videoset)):
         filename = os.path.join(save_path, f"{i:06d}.png")
         cv2.imwrite(filename, frame)

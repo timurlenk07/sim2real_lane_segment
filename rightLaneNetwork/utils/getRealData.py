@@ -99,7 +99,6 @@ def saveAsImages(save_path, num_images):
         cap = cv2.VideoCapture(file)
         framecount += int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
-        os.remove(file)
     print("Total number of frames = ", framecount)
 
     videoset = list(range(framecount))
@@ -121,7 +120,7 @@ def saveAsImages(save_path, num_images):
                     saved_ims += 1
 
                 img_counter += 1
-                
+
         cap.release()
         os.remove(file)
 

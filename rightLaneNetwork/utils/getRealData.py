@@ -108,9 +108,22 @@ def saveAsImages(save_path, num_images):
         videoset = random.sample(videoset, num_images)
 
     print("Saving as .png images")
-    for i, frame in enumerate(tqdm(videoset)):
-        filename = os.path.join(save_path, f"{i:06d}.png")
-        cv2.imwrite(filename, frame)
+    saved_ims = 0
+    img_counter = 0
+    for file in tqdm(files):
+        cap = cv2.VideoCapture(file)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                if img_counter in videoset:
+                    filename = os.path.join(save_path, f"{saved_ims:06d}.png")
+                    cv2.imwrite(filename, frame)
+                    saved_ims += 1
+
+                img_counter += 1
+                
+        cap.release()
+        os.remove(file)
 
 
 if __name__ == "__main__":

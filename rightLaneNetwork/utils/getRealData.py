@@ -120,6 +120,8 @@ def saveAsImages(save_path, num_images):
                     saved_ims += 1
 
                 img_counter += 1
+            else:
+                break
 
         cap.release()
         os.remove(file)

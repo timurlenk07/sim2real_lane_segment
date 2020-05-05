@@ -13,6 +13,8 @@ parser.add_argument('-id', '--input_dir', default=os.path.join(os.getcwd(), 'rec
 parser.add_argument('-od', '--output_dir', default=os.path.join(os.getcwd(), 'data'))
 args = parser.parse_args()
 
+logging.basicConfig(format='[%(levelname)s]: %(message)s', level=logging.INFO)
+
 if args.clear_data:
     try:
         from shutil import rmtree
@@ -70,14 +72,14 @@ for orig_fp, annot_fp in raw_list:
     cap_orig = cv2.VideoCapture(orig_fp)
     cap_annot = cv2.VideoCapture(annot_fp)
     if not cap_orig.isOpened() or not cap_annot.isOpened():
-        print("Could not open files! Continuing...")
+        logging.warning("Could not open files! Continuing...")
         continue
 
     # Check whether recordings hold the same number of frames
     if cap_orig.get(cv2.CAP_PROP_FRAME_COUNT) != cap_annot.get(cv2.CAP_PROP_FRAME_COUNT):
-        print("Different video length encountered! Continuing...")
+        logging.warning("Different video length encountered! Continuing...")
         logging.debug("orig frames: %i, annot frames: %i" % (
-        cap_orig.get(cv2.CAP_PROP_FRAME_COUNT), cap_annot.get(cv2.CAP_PROP_FRAME_COUNT)))
+            cap_orig.get(cv2.CAP_PROP_FRAME_COUNT), cap_annot.get(cv2.CAP_PROP_FRAME_COUNT)))
         continue
 
     # Open VideoWriter objects
@@ -91,27 +93,27 @@ for orig_fp, annot_fp in raw_list:
     vWriter_label = cv2.VideoWriter(labelFile, fourcc, fps, framesize, isColor)
     
     if not vWriter_input.isOpened() or not vWriter_label.isOpened():
-        print("Could not open video writers! Continuing...")
+        logging.warning("Could not open video writers! Continuing...")
         vWriter_input.release()
         vWriter_label.release()
         continue
 
     # Produce output videos
-    print(f"Processing recording nr. {vid_counter}...")
+    logging.info(f"Processing recording nr. {vid_counter}...")
     while cap_orig.isOpened() and cap_annot.isOpened():  # Iterate through every frame
         ret_o, frame_o = cap_orig.read()
         ret_a, frame_a = cap_annot.read()
         if not ret_o or not ret_a:
             break
 
-        # Postprocess original recording: convert from BGR to RGB
-        vWriter_input.write(cv2.cvtColor(frame_o, cv2.COLOR_BGR2RGB))
+        # Postprocess original recording: needs nothing
+        vWriter_input.write(frame_o)
 
         # Postprocess annotated frame: binarize it
         annot_binary = binarize(frame_o, frame_a)
         vWriter_label.write(annot_binary)
 
-    print(f"Processing of recording nr. {vid_counter} done.")
+    logging.info(f"Processing of recording nr. {vid_counter} done.")
 
     # Release writer resources
     vWriter_input.release()
@@ -125,4 +127,4 @@ if args.delete_processed:
     except FileNotFoundError:
         pass
 
-print("Post-processing finished!")
+logging.info("Post-processing finished!")

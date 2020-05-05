@@ -6,19 +6,16 @@ This script allows you to manually control the simulator or Duckiebot
 using the keyboard arrows.
 """
 
-import sys
 import argparse
-import pyglet
-from skimage.io import imsave, imread
-from pyglet.window import key
-import numpy as np
+import sys
+
 import gym
-import gym_duckietown
+import numpy as np
+import pyglet
+from pyglet.window import key
+
 from gym_duckietown.envs import DuckietownEnv
-from gym_duckietown.wrappers import UndistortWrapper
-
 from gym_duckietown.recorder import Recorder
-
 
 pyglet.options['debug_gl'] = False
 pyglet.options['vsync'] = False
@@ -56,12 +53,6 @@ recordingInProgress = False
 recorder_orig = Recorder()
 recorder_annot = Recorder()
 
-def startRecording():
-    global recordingInProgress
-    print('Start recording...')
-    recorder_orig.startRecording('orig')
-    recorder_annot.startRecording('annot')
-    recordingInProgress = True
 
 def stopRecording():
     global recordingInProgress
@@ -70,6 +61,16 @@ def stopRecording():
     recorder_orig.stopRecording()
     recorder_annot.stopRecording()
     env.recording_time = 0.0
+
+
+def startRecording():
+    global recordingInProgress
+    print('Start recording...')
+    retA = recorder_orig.startRecording('orig')
+    retB = recorder_annot.startRecording('annot')
+    recordingInProgress = retA and retB
+    if not retA or not retB:
+        stopRecording()
 
 
 @env.unwrapped.window.event
@@ -169,7 +170,7 @@ def update(dt):
 
         # limit the max recording length to 10 sec
         env.recording_time += dt    # add the delta time [s] to the recording time
-        if env.recording_time > 10.0:
+        if env.recording_time > 100.0:
             stopRecording()
 
     if done:

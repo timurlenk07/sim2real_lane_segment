@@ -19,6 +19,6 @@
     "frame_skip": {
         "type": "int",
         "low": 1,
-        "high": 5
+        "high": 2
     }
 }

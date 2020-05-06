@@ -1,5 +1,4 @@
 import argparse
-import concurrent.futures
 import glob
 import logging
 import os
@@ -107,7 +106,7 @@ def checkDirsExist(directories):
     return len(missingDirs) == 0, missingDirs
 
 
-def createRightLaneDatabase(dataPath, preprocessTransform=None):
+def createRightLaneDatabase(dataPath, preprocessTransform=None, useSingleSet=False):
     # Check data is available, ie. file structure is as is required
 
     # Main directory
@@ -124,6 +123,9 @@ def createRightLaneDatabase(dataPath, preprocessTransform=None):
 
     # Take apart videos
     videos2images(dataPath, preprocessTransform, True, True)
+
+    if useSingleSet:
+        return
 
     # Create train, valid and test set
     train_ratio = 0.7
@@ -156,43 +158,50 @@ def createRightLaneDatabase(dataPath, preprocessTransform=None):
     shutil.rmtree(label_dir)
 
 
-def createRightLaneDatabaseMME(dataPath, shouldPreprocess=False, preprocessTransform=None):
+def preprocessRealDB(dataPath, preprocessTransform=None):
     # Check data is available, ie. file structure is as is required
 
     # Main directory
     if not os.path.exists(dataPath):
         raise FileNotFoundError(f"Directory {dataPath} does not exist!")
 
-    # Domain directories
-    source_path = os.path.join(dataPath, "source")
-    target_path = os.path.join(dataPath, 'target')
-    dataPaths = [source_path, target_path]
-    exists, missing = checkDirsExist(dataPaths)
+    # Sub-directories
+    input_dir = os.path.join(dataPath, 'input')
+    label_dir = os.path.join(dataPath, 'label')
+    unlabelled_dir = os.path.join(dataPath, 'unlabelled')
+    exists, missing = checkDirsExist([input_dir, label_dir, unlabelled_dir])
     if not exists:
         raise FileNotFoundError(f"Directories: {missing} do not exist, hence no data is available!")
 
-    # Sub-domain directories
-    target_train_path = os.path.join(target_path, 'train')
-    target_unlabelled_path = os.path.join(target_path, 'unlabelled')
-    target_test_path = os.path.join(target_path, 'test')
-    dataPaths = [source_path, target_train_path, target_unlabelled_path, target_test_path]
-    labelled = [True, True, False, True]  # Will be used later, easier to track it here
-    exists, missing = checkDirsExist(dataPaths)
-    if not exists:
-        raise FileNotFoundError(f"Directories: {missing} do not exist, hence no data is available!")
+    # Create train and test set
+    train_ratio = 0.7
 
-    # Check if post preprocess folders are available, if not, try to preprocess
-    if not shouldPreprocess:
-        exists, missing = checkDirsExist([os.path.join(dataPath, 'input') for dataPath in dataPaths])
-        if not exists:
-            shouldPreprocess = True
-            dataPaths = [os.path.split(directory)[0] for directory in missing]
+    input_imgs = sorted(glob.glob(os.path.join(input_dir, '*.png')))
+    label_imgs = sorted(glob.glob(os.path.join(label_dir, '*.png')))
+    assert len(input_imgs) == len(label_imgs), "Input and label image count is not the same!"
+    imgs = list(zip(input_imgs, label_imgs))
+    shuffle(imgs)
 
-    if shouldPreprocess:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(video2images, dataPath, preprocessTransform, haveLabels, True)
-                       for dataPath, haveLabels in zip(dataPaths, labelled)]
-            concurrent.futures.as_completed(futures)
+    train_end_idx = int(round(len(imgs) * train_ratio))
+
+    setPaths = [os.path.join(dataPath, set_name) for set_name in ['train', 'test']]
+    imgSets = [imgs[:train_end_idx], imgs[train_end_idx:]]
+    assert sum([len(imgSet) for imgSet in imgSets]) == len(
+        imgs), "Not the same amount of images in sets and merged one!"
+
+    for imgSet, setPath in zip(imgSets, setPaths):
+        os.makedirs(os.path.join(setPath, 'input'))
+        os.makedirs(os.path.join(setPath, 'label'))
+        for i, (input_img, label_img) in enumerate(imgSet):
+            filename = f'{i:06d}.png'
+            shutil.move(input_img, os.path.join(setPath, 'input', filename))
+            shutil.move(label_img, os.path.join(setPath, 'label', filename))
+
+    shutil.move(unlabelled_dir, os.path.join(dataPath, '.temp'))
+    shutil.move(os.path.join(dataPath, '.temp'), os.path.join(unlabelled_dir, 'input'))
+
+    shutil.rmtree(input_dir)
+    shutil.rmtree(label_dir)
 
 
 class GrayscaleResizeTransform:
@@ -220,9 +229,10 @@ class GrayscaleResizeTransform:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--minimax', action='store_true')
+    parser.add_argument('--prep_sim_db', action='store_true')
+    parser.add_argument('--single_sim_dir', action='store_true')
+    parser.add_argument('--prep_real_db', action='store_true')
     parser.add_argument('--dataPath', type=str, default="./realData")
-    parser.add_argument('--shouldPreprocess', action='store_true')
     parser.add_argument('--grayscale', action='store_true')
     parser.add_argument('--resize', action='store_true')
     parser.add_argument('--width', type=int, default=160)
@@ -232,7 +242,7 @@ if __name__ == '__main__':
     newRes = (args.width, args.height) if args.resize else None
     transform = GrayscaleResizeTransform(grayscale=args.grayscale, newRes=newRes)
 
-    if args.minimax:
-        createRightLaneDatabaseMME(args.dataPath, args.shouldPreprocess, transform)
-    else:
-        createRightLaneDatabase(args.dataPath, transform)
+    if args.prep_real_db:
+        preprocessRealDB(args.dataPath, transform)
+    elif args.prep_sim_db:
+        createRightLaneDatabase(args.dataPath, transform, args.single_sim_dir)

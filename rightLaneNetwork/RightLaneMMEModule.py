@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
 from PIL import Image
-from torch.optim import Adam
+from torch.optim import SGD
 from torch.utils.data import DataLoader, ConcatDataset
 
 from dataManagement.getData import getRightLaneDatasetsMME
@@ -26,6 +26,7 @@ class RightLaneMMEModule(pl.LightningModule):
         self.hparams = hparams
 
         # Dataset parameters
+        self.dataPath = hparams.dataPath
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = (None for _ in range(4))
         self.STSet = None
         self.batchSize = hparams.batchSize
@@ -66,7 +67,7 @@ class RightLaneMMEModule(pl.LightningModule):
         return img, label
 
     def prepare_data(self):
-        datasets = getRightLaneDatasetsMME('./data', transform=self.transform)
+        datasets = getRightLaneDatasetsMME(self.dataPath, transform=self.transform)
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = datasets
         self.STSet = ConcatDataset([self.sourceSet, self.targetTrainSet])
 
@@ -76,22 +77,32 @@ class RightLaneMMEModule(pl.LightningModule):
         return trainLoader
 
     def val_dataloader(self):
-        return DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=True, num_workers=4)
+        valLoader = DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=4)
+        return valLoader
 
     def configure_optimizers(self):
-        optimizer_g = Adam(self.featureExtractor.parameters(), lr=self.lr, weight_decay=self.decay)
-        optimizer_f = Adam(self.classifier.parameters(), lr=self.lr, weight_decay=self.decay)
-        return [optimizer_g, optimizer_f]
+        optimizer = SGD([
+            {'params': self.featureExtractor.parameters(), 'lr': self.lr / 100},
+            {'params': self.classifier.parameters(), 'lr': self.lr}
+        ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
+        return [optimizer, optimizer]
+
+    def backward2(self, trainer, loss, optimizer, optimizer_idx):
+        if optimizer_idx == 0:
+            loss.backward(retain_graph=True)
+        else:
+            loss.backward()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         x_labelled, x_unlabelled, labels, _ = batch
 
         if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
-            outputs = self.forward(x_labelled)
+            outputs = self.featureExtractor(x_labelled)
+            outputs = self.classifier(outputs, useSoftmax=False)
             loss = self.criterion(outputs, labels)
         if optimizer_idx == 1:  # We are unlabelled optimizer -> maximize entropy
-            outputs = self.featureExtractor.forward(x_unlabelled)
-            outputs = self.classifier.forward(outputs, reverseGrad=True)
+            outputs = self.featureExtractor(x_unlabelled)
+            outputs = self.classifier(outputs, reverseGrad=True)
             loss = adentropy(outputs, lamda=0.1)
 
         output = OrderedDict({
@@ -132,6 +143,7 @@ class RightLaneMMEModule(pl.LightningModule):
 
 def main(args):
     model = RightLaneMMEModule(hparams=args)
+    model.load_state_dict(torch.load(args.pretrained_path))
 
     # makes all trainer options available from the command line
     # trainer = pl.Trainer.from_argparse_args(args)
@@ -151,6 +163,10 @@ if __name__ == '__main__':
 
     # adds all the trainer options as default arguments (like max_epochs)
     # parser = pl.Trainer.add_argparse_args(parser)
+
+    # Need pretrained weights
+    parser.add_argument('--pretrained_path', type=str, default='./results/FCDenseNet57weights.pth')
+    parser.add_argument('--dataPath', type=str, default='./data')
 
     # parametrize the network
     parser.add_argument('--grayscale', action='store_true')

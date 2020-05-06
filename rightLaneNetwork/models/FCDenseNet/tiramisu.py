@@ -115,13 +115,15 @@ class FCDenseNetClassifier(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         self.T = temperature
 
-    def forward(self, x, reverseGrad=False):
+    def forward(self, x, reverseGrad=False, useSoftmax=True):
         if reverseGrad:
             x = grad_reverse(x)
         x = F.normalize(x)
         x = self.finalConv(x)
         x = x / self.T
-        return self.softmax(x)
+        if useSoftmax:
+            x = self.softmax
+        return x
 
 
 class FCDenseNet(nn.Module):

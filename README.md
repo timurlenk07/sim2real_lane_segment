@@ -31,6 +31,53 @@ All the code related to neural networks are implemented in PyTorch and, recently
 Versions are always updated, so I plan to use the newest version possible.
 If this repo is finalised, or I wish to make a tag of it then I will add specific version informations.
 
+### Database preprocessing, formatting
+Simulation database directory structure before preprocessing is expected to be as follows:
+```
+simData
+├── input
+└── label
+```
+After preprocessing:
+```
+simData
+├── test
+│   ├── input
+│   └── label
+├── train
+│   ├── input
+│   └── label
+└── valid
+    ├── input
+    └── label
+```
+
+Real image database directory structure before preprocessing is expected to be as follows:
+```
+realData
+├── input
+├── label
+└── unlabelled
+```
+After preprocessing:
+```
+realData
+├── test
+│   ├── input
+│   └── label
+├── train
+│   ├── input
+│   └── label
+└── unlabelled
+    └── input
+```
+
+When SSDA training is used, the following directory structure is expected (after preprocessing):
+```
+dataSSDA
+TODO
+```
+
 ### Base architectures
 I have tried a couple of segmentation networks that were:
 - A custom network consisting of an encoder path and a decoder path, named EncDecNet among the models.

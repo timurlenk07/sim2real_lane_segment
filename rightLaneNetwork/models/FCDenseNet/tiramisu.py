@@ -122,7 +122,7 @@ class FCDenseNetClassifier(nn.Module):
         x = self.finalConv(x)
         x = x / self.T
         if useSoftmax:
-            x = self.softmax
+            x = self.softmax(x)
         return x
 
 

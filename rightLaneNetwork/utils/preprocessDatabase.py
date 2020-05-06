@@ -3,32 +3,36 @@ import concurrent.futures
 import glob
 import logging
 import os
+import shutil
 from itertools import zip_longest
+from random import shuffle
 
 import cv2
 
 
-def video2images(directory, transform=None, haveLabels=True, deleteProcessed=False):
+def videos2images(directory, transform=None, haveLabels=True, deleteProcessed=False):
     logging.info(f"Managing directory: {directory}")
 
+    input_dir = os.path.join(directory, 'input')
+    label_dir = os.path.join(directory, 'label') if haveLabels else None
+
+    if not os.path.isdir(input_dir) or (haveLabels and not os.path.isdir(label_dir)):
+        raise FileNotFoundError(f"Unexpected directory structure!")
+
     # Get the list of available recordings
-    input_vids = sorted(glob.glob(os.path.join(directory, '*_orig_pp.avi')))
-    label_vids = sorted(glob.glob(os.path.join(directory, '*_annot_pp.avi')))
+    input_vids = sorted(glob.glob(os.path.join(input_dir, '*.avi')))
+    label_vids = sorted(glob.glob(os.path.join(label_dir, '*.avi'))) if haveLabels else None
 
     # Check whether original and annotated recordings number match or not
     if haveLabels and len(input_vids) != len(label_vids):
         raise RuntimeError(f"Different number of input and target videos!")
-
-    os.makedirs(os.path.join(directory, 'input'), exist_ok=True)
-    if haveLabels:
-        os.makedirs(os.path.join(directory, 'label'), exist_ok=True)
 
     if len(input_vids) == 0:
         logging.info(f"{directory}: No data found. You might want to check if this is an intended behaviour.")
         return 0
 
     if not haveLabels:
-        logging.info(f"{directory}: No labels found. You might want to check if this is an intended behaviour.")
+        logging.info(f"{directory}: No labels given. You might want to check if this is an intended behaviour.")
 
     logging.info(f"{directory} Number of files found: {len(input_vids)}. Taking apart video files...")
 
@@ -39,8 +43,7 @@ def video2images(directory, transform=None, haveLabels=True, deleteProcessed=Fal
 
         # Open recordings...
         input_cap = cv2.VideoCapture(input_vid)
-        if haveLabels:
-            label_cap = cv2.VideoCapture(label_vid)
+        label_cap = cv2.VideoCapture(label_vid) if haveLabels else None
 
         if not input_cap.isOpened() or (haveLabels and not label_cap.isOpened()):
             unopened = input_vid if not input_cap.isOpened() else label_vid
@@ -56,13 +59,12 @@ def video2images(directory, transform=None, haveLabels=True, deleteProcessed=Fal
         logging.debug(f"Processing recording: {input_vid}...")
         while input_cap.isOpened():  # Iterate through every frame
             ret_i, input_frame = input_cap.read()
-            if haveLabels:
-                ret_l, label_frame = label_cap.read()
+            (ret_l, label_frame) = label_cap.read() if haveLabels else (None, None)
             if not ret_i or (haveLabels and not ret_l):
                 break
 
             if haveLabels:
-                # Convert annotated to grayscale
+                # Convert label to grayscale
                 label_frame = cv2.cvtColor(label_frame, cv2.COLOR_BGR2GRAY)
 
             if transform is not None:
@@ -73,10 +75,10 @@ def video2images(directory, transform=None, haveLabels=True, deleteProcessed=Fal
 
             # Save both frames in new file
             filename = f'{img_counter:06d}.png'
-            filepath_o = os.path.join(directory, 'input', filename)
+            filepath_o = os.path.join(input_dir, filename)
             cv2.imwrite(filepath_o, input_frame)
             if haveLabels:
-                filepath_a = os.path.join(directory, 'label', filename)
+                filepath_a = os.path.join(label_dir, filename)
                 cv2.imwrite(filepath_a, label_frame)
 
             img_counter += 1
@@ -105,36 +107,53 @@ def checkDirsExist(directories):
     return len(missingDirs) == 0, missingDirs
 
 
-def createRightLaneDatabase(dataPath, shouldPreprocess=False, preprocessTransform=None):
+def createRightLaneDatabase(dataPath, preprocessTransform=None):
     # Check data is available, ie. file structure is as is required
 
     # Main directory
     if not os.path.exists(dataPath):
         raise FileNotFoundError(f"Directory {dataPath} does not exist!")
 
-    # Set directories
-    train_dir = os.path.join(dataPath, "train")
-    valid_dir = os.path.join(dataPath, "validation")
-    test_dir = os.path.join(dataPath, "test")
-    dataPaths = [train_dir, valid_dir, test_dir]
+    # Test expected directories
+    input_dir = os.path.join(dataPath, "input")
+    label_dir = os.path.join(dataPath, "label")
+    dataPaths = [input_dir, label_dir]
     exists, missing = checkDirsExist(dataPaths)
     if not exists:
         raise FileNotFoundError(f"Directories: {missing} do not exist, hence no data is available!")
 
-    # Check if post preprocess folders are available, if not, try to preprocess
-    if not shouldPreprocess:
-        target_dirs = [os.path.join(dataPath, 'input') for dataPath in dataPaths]
-        target_dirs.extend([os.path.join(dataPath, 'label') for dataPath in dataPaths])
-        exists, missing = checkDirsExist(target_dirs)
-        if not exists:
-            shouldPreprocess = True
-            dataPaths = [os.path.split(directory)[0] for directory in missing]
+    # Take apart videos
+    videos2images(dataPath, preprocessTransform, True, True)
 
-    if shouldPreprocess:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(video2images, dataPath, preprocessTransform, True, False)
-                       for dataPath in dataPaths]
-            concurrent.futures.as_completed(futures)
+    # Create train, valid and test set
+    train_ratio = 0.7
+    test_ratio = 0.15
+
+    input_imgs = sorted(glob.glob(os.path.join(input_dir, '*.png')))
+    label_imgs = sorted(glob.glob(os.path.join(label_dir, '*.png')))
+    assert len(input_imgs) == len(label_imgs), "Input and label image count is not the same!"
+    imgs = list(zip(input_imgs, label_imgs))
+    shuffle(imgs)
+
+    train_end_idx = int(round(len(imgs) * train_ratio))
+    test_start_idx = int(round(len(imgs) * (1 - test_ratio)))
+    assert train_end_idx < test_start_idx, "Train end is beyond test start; probably too few data is available!"
+
+    setPaths = [os.path.join(dataPath, set_name) for set_name in ['train', 'valid', 'test']]
+    imgSets = [imgs[:train_end_idx], imgs[train_end_idx:test_start_idx], imgs[test_start_idx:]]
+    assert sum([len(imgSet) for imgSet in imgSets]) == len(
+        imgs), "Not the same amount of images in sets and merged one!"
+
+    for imgSet, setPath in zip(imgSets, setPaths):
+        os.makedirs(os.path.join(setPath, 'input'))
+        os.makedirs(os.path.join(setPath, 'label'))
+        for i, (input_img, label_img) in enumerate(imgSet):
+            filename = f'{i:06d}.png'
+            shutil.move(input_img, os.path.join(setPath, 'input', filename))
+            shutil.move(label_img, os.path.join(setPath, 'label', filename))
+
+    shutil.rmtree(input_dir)
+    shutil.rmtree(label_dir)
 
 
 def createRightLaneDatabaseMME(dataPath, shouldPreprocess=False, preprocessTransform=None):
@@ -216,4 +235,4 @@ if __name__ == '__main__':
     if args.minimax:
         createRightLaneDatabaseMME(args.dataPath, args.shouldPreprocess, transform)
     else:
-        createRightLaneDatabase(args.dataPath, args.shouldPreprocess, transform)
+        createRightLaneDatabase(args.dataPath, transform)

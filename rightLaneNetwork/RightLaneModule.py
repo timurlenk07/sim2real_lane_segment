@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from dataManagement.getData import getRightLaneDatasets
-from models.FCDenseNet.tiramisu import FCDenseNet57
+from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
 def myTransformation(img, label):
@@ -44,11 +44,14 @@ class RightLaneModule(pl.LightningModule):
         self.decay = hparams.decay
         self.lrRatio = hparams.lrRatio
 
-        inFeat = 3 if not self.grayscale else 1
-        self.net = FCDenseNet57(2)
+        # Network parts
+        self.featureExtractor = FCDenseNet57Base()
+        self.classifier = FCDenseNet57Classifier(n_classes=2)
 
     def forward(self, x):
-        return self.net(x)
+        x = self.featureExtractor(x)
+        x = self.classifier(x)
+        return x
 
     def prepare_data(self):
         dataSets = getRightLaneDatasets('./data', transform=myTransformation)
@@ -58,7 +61,7 @@ class RightLaneModule(pl.LightningModule):
         return DataLoader(self.trainSet, batch_size=self.batchSize, shuffle=True, num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.validSet, batch_size=self.batchSize, shuffle=True, num_workers=8)
+        return DataLoader(self.validSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def test_dataloader(self):
         return DataLoader(self.testSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
@@ -168,6 +171,7 @@ def main(args):
 
     trainer.fit(model)
     trainer.save_checkpoint('./results/FCDenseNet57.ckpt')
+    torch.save(model.state_dict(), './results/FCDenseNet57weights.pth')
     trainer.test(model)
 
 

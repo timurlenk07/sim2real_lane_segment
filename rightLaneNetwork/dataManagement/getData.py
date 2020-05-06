@@ -5,7 +5,7 @@ from .myDatasets import RightLaneDataset
 
 def getRightLaneDatasets(dataPath, transform=None):
     train_dir = os.path.join(dataPath, "train")
-    valid_dir = os.path.join(dataPath, "validation")
+    valid_dir = os.path.join(dataPath, "valid")
     test_dir = os.path.join(dataPath, "test")
     dataPaths = [train_dir, valid_dir, test_dir]
 

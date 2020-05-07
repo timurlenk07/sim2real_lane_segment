@@ -62,3 +62,19 @@ class ParallelDataset(Dataset):
         x2, y2 = self.dsB[index % len(self.dsB)]
 
         return x1, x2, y1, y2
+
+
+class UnbalancedDataset(Dataset):
+    def __init__(self, longer, shorter):
+        super().__init__()
+
+        self.longer, self.shorter = longer, shorter
+
+    def __len__(self):
+        return len(self.longer)
+
+    def __getitem__(self, index):
+        x1, y1 = self.longer[index % len(self.longer)]
+        x2, y2 = self.shorter[index % len(self.shorter)]
+
+        return (x1, x2), (y1, y2)

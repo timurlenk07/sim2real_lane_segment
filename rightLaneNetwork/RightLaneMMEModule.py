@@ -7,10 +7,11 @@ import torch.nn as nn
 import torchvision.transforms.functional as TF
 from PIL import Image
 from torch.optim import SGD
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from dataManagement.getData import getRightLaneDatasetsMME
-from dataManagement.myDatasets import ParallelDataset
+from dataManagement.myDatasets import ParallelDataset, UnbalancedDataset
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
@@ -69,7 +70,7 @@ class RightLaneMMEModule(pl.LightningModule):
     def prepare_data(self):
         datasets = getRightLaneDatasetsMME(self.dataPath, transform=self.transform)
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = datasets
-        self.STSet = ConcatDataset([self.sourceSet, self.targetTrainSet])
+        self.STSet = UnbalancedDataset(self.sourceSet, self.targetTrainSet)
 
     def train_dataloader(self):
         parallelDataset = ParallelDataset(self.STSet, self.targetUnlabelledSet)
@@ -94,7 +95,9 @@ class RightLaneMMEModule(pl.LightningModule):
             loss.backward()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        x_labelled, x_unlabelled, labels, _ = batch
+        (x_labelled_a, x_labelled_b), x_unlabelled, (labels_a, labels_b), _ = batch
+        x_labelled = torch.cat([x_labelled_a, x_labelled_b], dim=0)
+        labels = torch.cat([labels_a, labels_b], dim=0)
 
         if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
             outputs = self.featureExtractor(x_labelled)

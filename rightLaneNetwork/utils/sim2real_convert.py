@@ -1,5 +1,6 @@
 import glob
 import logging
+import math
 import os
 from argparse import ArgumentParser
 
@@ -7,7 +8,9 @@ import cv2
 import numpy as np
 import torch
 import torchvision.transforms as transforms
+from PIL import Image
 from torch import nn
+from tqdm import tqdm
 
 
 # from https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/cyclegan/models.py
@@ -79,22 +82,23 @@ class GeneratorResNet(nn.Module):
         return self.model(x)
 
 
-def main(dataPath, weightsPath):
+def main(dataPath, overwriteData, weightsPath):
     haveCuda = torch.cuda.is_available()
-    haveCuda = False
 
     # Make model
-    model = GeneratorResNet([3, 640, 480], 9)
+    model = GeneratorResNet([3, 160, 120], 9)
     model.load_state_dict(torch.load(weightsPath))
     model.eval()
     if haveCuda:
-        model.cuda()
+        model = model.cuda()
 
     # Get list of images in dataPath
     imgs = sorted(glob.glob(os.path.join(dataPath, '**', 'input', '*.png')))
     logging.debug(f"Found images length: {len(imgs)}")
 
     transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((120, 160), Image.LANCZOS),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
@@ -106,21 +110,28 @@ def main(dataPath, weightsPath):
         for ndx in range(0, l, n):
             yield iterable[ndx:min(ndx + n, l)]
 
-    for img_p in imgs:
-        img = cv2.imread(img_p)
-        cv2.imwrite('test_in.png', img)
-        img = transform(img).unsqueeze(0)
-        if haveCuda:
-            img.cuda()
+    for img_p_batch in tqdm(batch(imgs, 1), total=math.ceil(len(imgs) / 1)):
+        img_batch = []
+        for img_p in img_p_batch:
+            img = cv2.imread(img_p)
+            cv2.imwrite('./test_in.png', img)
+            img = transform(img)
+            img_batch.append(img)
+            break
 
-        img = model.forward(img)
-        img = img.squeeze().detach().numpy()
-        img = (img + 1) / 2 * 255
-        img = img.transpose([1, 2, 0]).astype(np.uint8)
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        cv2.imwrite('test_out.png', img)
+        img_batch = torch.from_numpy(np.stack(img_batch))
+        if haveCuda:
+            img_batch = img_batch.cuda()
+        img_batch = model.forward(img_batch)
+
+        for i, img_p in enumerate(img_p_batch):
+            img = img_batch[i].detach().cpu().squeeze().numpy()
+            img = (img.transpose([1, 2, 0]) + 1) / 2
+            img = (img * 255).astype(np.uint8)
+            img = cv2.resize(img, (640, 480), cv2.INTER_LANCZOS4)
+            cv2.imwrite('./test_out.png', img)
+            break
         break
-        # cv2.imwrite(img_p, img)
 
 
 if __name__ == '__main__':
@@ -128,8 +139,9 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument('--dataPath', type=str, default='./data')
-    parser.add_argument('--modelWeightsPath', type=str, default='./G_BA_0.pth')
+    parser.add_argument('--overwriteData', action='store_true')
+    parser.add_argument('--modelWeightsPath', type=str, default='./G_BA.pth')
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG)
-    main(args.dataPath, args.modelWeightsPath)
+    logging.basicConfig(level=logging.INFO)
+    main(args.dataPath, args.overwriteData, args.modelWeightsPath)

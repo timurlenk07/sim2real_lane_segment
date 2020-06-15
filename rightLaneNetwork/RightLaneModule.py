@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from collections import OrderedDict
 
+import cv2
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -14,18 +15,22 @@ from dataManagement.getData import getRightLaneDatasets
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
-def myTransformation(img, label):
-    newRes = (120, 160)
+def myTransformation(img, label, newRes=(120, 160)):
     if img is not None:
+        img = cv2.GaussianBlur(img, (5, 5), 0)
         img = TF.to_pil_image(img)
         # img = TF.to_grayscale(img)
         img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
         img = TF.to_tensor(img)
+        noise = torch.randn_like(img) / 100
+        img += noise
     if label is not None:
         label = TF.to_pil_image(label)
-        label = TF.resize(label, newRes, interpolation=Image.LANCZOS)
-        label = label.point(lambda p: p > 127 and 255)
-        label = TF.to_tensor(label).squeeze().long()
+        label = TF.resize(label, newRes, interpolation=Image.NEAREST)
+        # label = label.point(lambda p: p > 127 and 255)
+        label = TF.to_tensor(label).squeeze()
+        label = label / torch.max(label)
+        label = label.long()
 
     return img, label
 
@@ -35,6 +40,8 @@ class RightLaneModule(pl.LightningModule):
         super().__init__()
 
         self.hparams = hparams
+
+        self.dataPath = hparams.dataPath
         self.trainSet, self.validSet, self.testSet = (None for _ in range(3))
 
         self.grayscale = False  # hparams.grayscale
@@ -54,7 +61,7 @@ class RightLaneModule(pl.LightningModule):
         return x
 
     def prepare_data(self):
-        dataSets = getRightLaneDatasets('./data', transform=myTransformation)
+        dataSets = getRightLaneDatasets(self.dataPath, transform=myTransformation)
         self.trainSet, self.validSet, self.testSet = dataSets
 
     def train_dataloader(self):
@@ -183,6 +190,8 @@ if __name__ == '__main__':
     # adds all the trainer options as default arguments (like max_epochs)
     # parser = pl.Trainer.add_argparse_args(parser)
 
+    parser.add_argument('--dataPath', type=str, default='./data')
+
     # parametrize the network
     parser.add_argument('--grayscale', action='store_true')
     parser.add_argument('--width', type=int, default=160)
@@ -197,3 +206,4 @@ if __name__ == '__main__':
 
     print(args)
     main(args)
+

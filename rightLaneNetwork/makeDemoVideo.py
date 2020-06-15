@@ -12,7 +12,7 @@ def main(inputVideo, outputVideo, model, transform, args=None):
     cap_in = cv2.VideoCapture(inputVideo)
 
     fourcc = cv2.VideoWriter_fourcc(*'FFV1')
-    fps = 25
+    fps = cap_in.get(cv2.CAP_PROP_FPS)
     framesize = (160, 120)
     isColor = True
     w_out = cv2.VideoWriter(outputVideo, fourcc, fps, framesize, isColor)
@@ -28,7 +28,7 @@ def main(inputVideo, outputVideo, model, transform, args=None):
         _, pred = torch.max(model.forward(frame_in), 1)
         pred = pred.byte().numpy().squeeze()
         if args.test_mme:
-            pred = pred.transpose(-1, -2)  # Trained with PIL transforms as preprocess
+            pass  # pred = pred.transpose(-1, -2)  # Trained with PIL transforms as preprocess
 
         frame_out = cv2.resize(frame, framesize, cv2.INTER_LANCZOS4)
         frame_out[pred > 0.5] = (0, 0, 255)

@@ -86,7 +86,7 @@ def main(dataPath, overwriteData, weightsPath):
     haveCuda = torch.cuda.is_available()
 
     # Make model
-    model = GeneratorResNet([3, 160, 120], 9)
+    model = GeneratorResNet((3, 120, 160), 9)
     model.load_state_dict(torch.load(weightsPath))
     model.eval()
     if haveCuda:
@@ -98,7 +98,7 @@ def main(dataPath, overwriteData, weightsPath):
 
     transform = transforms.Compose([
         transforms.ToPILImage(),
-        transforms.Resize((120, 160), Image.LANCZOS),
+        transforms.Resize((120, 160), Image.BICUBIC),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
@@ -122,15 +122,17 @@ def main(dataPath, overwriteData, weightsPath):
         img_batch = torch.from_numpy(np.stack(img_batch))
         if haveCuda:
             img_batch = img_batch.cuda()
-        img_batch = model.forward(img_batch)
+        img_batch = model(img_batch)
 
         for i, img_p in enumerate(img_p_batch):
             img = img_batch[i].detach().cpu().squeeze().numpy()
             img = (img.transpose([1, 2, 0]) + 1) / 2
             img = (img * 255).astype(np.uint8)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             img = cv2.resize(img, (640, 480), cv2.INTER_LANCZOS4)
             cv2.imwrite('./test_out.png', img)
             break
+            cv2.imwrite(img_p, img)
         break
 
 

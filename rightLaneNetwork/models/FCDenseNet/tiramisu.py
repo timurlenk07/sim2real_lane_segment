@@ -101,6 +101,8 @@ class FCDenseNetFeatureExtractor(nn.Module):
             out = self.transUpBlocks[i](out, skip)
             out = self.denseBlocksUp[i](out)
 
+        # Normalize features
+        out = F.normalize(out)
         return out
 
     def getFeatureChannels(self):
@@ -108,17 +110,14 @@ class FCDenseNetFeatureExtractor(nn.Module):
 
 
 class FCDenseNetClassifier(nn.Module):
-    def __init__(self, in_channels, n_classes, temperature=0.05):
+    def __init__(self, in_channels, n_classes, temperature=0.05, kernel_size=1):
         super().__init__()
         self.finalConv = nn.Conv2d(in_channels=in_channels, out_channels=n_classes,
-                                   kernel_size=1, stride=1, padding=0, bias=True)
+                                   kernel_size=kernel_size, stride=1, padding=kernel_size // 2, bias=True)
         self.softmax = nn.Softmax(dim=1)
         self.T = temperature
 
-    def forward(self, x, reverseGrad=False, useSoftmax=True):
-        if reverseGrad:
-            x = grad_reverse(x)
-        x = F.normalize(x)
+    def forward(self, x, useSoftmax=True):
         x = self.finalConv(x)
         x = x / self.T
         if useSoftmax:
@@ -129,7 +128,8 @@ class FCDenseNetClassifier(nn.Module):
 class FCDenseNet(nn.Module):
     def __init__(self, in_channels=3, down_blocks=(5, 5, 5, 5, 5),
                  up_blocks=(5, 5, 5, 5, 5), bottleneck_layers=5,
-                 growth_rate=16, out_chans_first_conv=48, n_classes=12):
+                 growth_rate=16, out_chans_first_conv=48, n_classes=12,
+                 kernel_size=1):
         super().__init__()
 
         self.featureExtractor = FCDenseNetFeatureExtractor(
@@ -138,7 +138,7 @@ class FCDenseNet(nn.Module):
             growth_rate=growth_rate, out_chans_first_conv=out_chans_first_conv
         )
         self.classifier = FCDenseNetClassifier(
-            in_channels=self.featureExtractor.getFeatureChannels(), n_classes=n_classes
+            in_channels=self.featureExtractor.getFeatureChannels(), n_classes=n_classes, kernel_size=kernel_size
         )
 
     def forward(self, x):
@@ -147,11 +147,13 @@ class FCDenseNet(nn.Module):
         return x
 
 
-def FCDenseNet57(n_classes):
+def FCDenseNet57(n_classes, kernel_size=1):
     return FCDenseNet(
         in_channels=3, down_blocks=(4, 4, 4, 4, 4),
         up_blocks=(4, 4, 4, 4, 4), bottleneck_layers=4,
-        growth_rate=12, out_chans_first_conv=48, n_classes=n_classes)
+        growth_rate=12, out_chans_first_conv=48, n_classes=n_classes,
+        kernel_size=kernel_size
+    )
 
 
 def FCDenseNet67(n_classes):

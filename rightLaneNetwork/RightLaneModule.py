@@ -1,12 +1,12 @@
 from argparse import ArgumentParser
 from collections import OrderedDict
 
-import cv2
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torchvision.transforms.functional as TF
-from PIL import Image
+from albumentations import Compose, ToGray, Resize, Blur, NoOp
+from albumentations.pytorch import ToTensor
+from pytorch_lightning.metrics import Accuracy
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -15,53 +15,79 @@ from dataManagement.getData import getRightLaneDatasets
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
-def myTransformation(img, label, newRes=(120, 160)):
-    if img is not None:
-        img = cv2.GaussianBlur(img, (5, 5), 0)
-        img = TF.to_pil_image(img)
-        # img = TF.to_grayscale(img)
-        img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
-        img = TF.to_tensor(img)
-        noise = torch.randn_like(img) / 100
-        img += noise
-    if label is not None:
-        label = TF.to_pil_image(label)
-        label = TF.resize(label, newRes, interpolation=Image.NEAREST)
-        # label = label.point(lambda p: p > 127 and 255)
-        label = TF.to_tensor(label).squeeze()
-        label = label / torch.max(label)
-        label = label.long()
-
-    return img, label
-
-
 class RightLaneModule(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, dataPath, width=160, height=120, gray=False,
+                 batchSize=32, lr=1e-3, decay=1e-4, lrRatio=1e3, **kwargs):
         super().__init__()
 
-        self.hparams = hparams
-
-        self.dataPath = hparams.dataPath
+        self.dataPath = dataPath
         self.trainSet, self.validSet, self.testSet = (None for _ in range(3))
 
-        self.grayscale = False  # hparams.grayscale
+        self.width, self.height = width, height
+        self.grayscale = gray
         self.criterion = nn.CrossEntropyLoss()
-        self.batchSize = hparams.batchSize
-        self.lr = hparams.learningRate
-        self.decay = hparams.decay
-        self.lrRatio = hparams.lrRatio
+        self.batchSize = batchSize
+        self.lr = lr
+        self.decay = decay
+        self.lrRatio = lrRatio
+
+        # save hyperparameters
+        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay', 'lrRatio')
+        print(f"The model has the following hyperparameters:")
+        print(self.hparams)
 
         # Network parts
         self.featureExtractor = FCDenseNet57Base()
         self.classifier = FCDenseNet57Classifier(n_classes=2)
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+
+        # Data location
+        parser.add_argument('--dataPath', type=str, default='./data')
+
+        # parametrize the network
+        parser.add_argument('--gray', action='store_true')
+        parser.add_argument('-wd', '--width', type=int, default=160)
+        parser.add_argument('-hg', '--height', type=int, default=120)
+
+        # Training hyperparams
+        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3)
+        parser.add_argument('--decay', type=float, default=1e-4)
+        parser.add_argument('--lrRatio', type=float, default=1000)
+        parser.add_argument('-b', '--batchSize', type=int, default=32)
+
+        return parser
 
     def forward(self, x):
         x = self.featureExtractor(x)
         x = self.classifier(x)
         return x
 
+    def transform(self, img, label=None):
+        aug = Compose([
+            Blur(p=0.5),
+            Resize(height=self.height, width=self.width, always_apply=True),
+            ToTensor(),
+            ToGray(always_apply=True) if self.grayscale else NoOp(always_apply=True)
+        ])
+
+        if label is not None:
+            # Binarize label
+            label[label > 0] = 255
+
+            augmented = aug(image=img, mask=label)
+            img = augmented['image']
+            label = augmented['mask'].squeeze().long()
+        else:
+            augmented = aug(image=img)
+            img = augmented['image']
+
+        return img, label
+
     def prepare_data(self):
-        dataSets = getRightLaneDatasets(self.dataPath, transform=myTransformation)
+        dataSets = getRightLaneDatasets(self.dataPath, transform=self.transform)
         self.trainSet, self.validSet, self.testSet = dataSets
 
     def train_dataloader(self):
@@ -75,7 +101,7 @@ class RightLaneModule(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
-        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / 1000)
+        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / self.lrRatio)
         return [optimizer], [scheduler]
 
     def training_step(self, batch, batch_idx):
@@ -143,22 +169,21 @@ class RightLaneModule(pl.LightningModule):
 
         # acc
         _, labels_hat = torch.max(outputs, 1)
-        correct = labels_hat.eq(y).sum()
-        total = torch.tensor(y.numel())
+        acc = Accuracy()(labels_hat, y)
 
         output = OrderedDict({
             'test_loss': loss,
-            'correct': correct,
-            'total': total,
+            'acc': acc,
+            'weight': y.shape[0],
         })
 
         return output
 
     def test_epoch_end(self, outputs):
         test_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
-        correct = torch.stack([x['correct'] for x in outputs]).sum()
-        total = torch.stack([x['total'] for x in outputs]).sum()
-        val_acc = correct * 100.0 / total
+        weight_count = sum(x['weight'] for x in outputs)
+        weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
+        val_acc = weighted_acc / weight_count
 
         tensorboard_logs = {'test_loss': test_loss,
                             'test_acc': val_acc}
@@ -166,44 +191,29 @@ class RightLaneModule(pl.LightningModule):
 
 
 def main(args):
+    model = RightLaneModule(**vars(args))
 
-    model = RightLaneModule(hparams=args)
-
-    # makes all trainer options available from the command line
-    # trainer = pl.Trainer.from_argparse_args(args)
-
-    # makes use of pre-defined options
-    trainer = pl.Trainer(gpus=1, max_epochs=args.numEpochs, progress_bar_refresh_rate=2,
-                         default_save_path='results')
+    # parse all trainer options available from the command line
+    trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model)
-    trainer.save_checkpoint('./results/FCDenseNet57.ckpt')
-    torch.save(model.state_dict(), './results/FCDenseNet57weights.pth')
+    trainer.save_checkpoint(args.ckpt_save_path)
+    torch.save(model.state_dict(), args.weights_save_path)
     trainer.test(model)
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
+    assert torch.cuda.device_count() <= 1  # Do not allow the use of more than one GPUs
 
     parser = ArgumentParser()
 
+    parser.add_argument('--ckpt_save_path', type=str, default='./results/FCDenseNet57.ckpt')
+    parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57weights.pth')
+    parser = RightLaneModule.add_model_specific_args(parser)
+
     # adds all the trainer options as default arguments (like max_epochs)
-    # parser = pl.Trainer.add_argparse_args(parser)
+    parser = pl.Trainer.add_argparse_args(parser)
 
-    parser.add_argument('--dataPath', type=str, default='./data')
-
-    # parametrize the network
-    parser.add_argument('--grayscale', action='store_true')
-    parser.add_argument('--width', type=int, default=160)
-    parser.add_argument('--height', type=int, default=120)
-
-    parser.add_argument('--batchSize', type=int, default=32)
-    parser.add_argument('--learningRate', type=float, default=1e-3)
-    parser.add_argument('--decay', type=float, default=1e-4)
-    parser.add_argument('--lrRatio', type=float, default=1000)
-    parser.add_argument('--numEpochs', type=int, default=2)
     args = parser.parse_args()
 
-    print(args)
     main(args)
-

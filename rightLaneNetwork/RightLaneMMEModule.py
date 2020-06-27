@@ -4,8 +4,8 @@ from collections import OrderedDict
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torchvision.transforms.functional as TF
-from PIL import Image
+from albumentations import Compose, ToGray, Resize, Blur, NoOp
+from albumentations.pytorch import ToTensor
 from torch.optim import SGD
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, WeightedRandomSampler
@@ -21,49 +21,73 @@ def adentropy(output, lamda=1.0):
 
 
 class RightLaneMMEModule(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, dataPath=None, width=160, height=120, gray=False,
+                 batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
         super().__init__()
 
-        # All hyperparameters
-        self.hparams = hparams
-
         # Dataset parameters
-        self.dataPath = hparams.dataPath
+        self.dataPath = dataPath
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = (None for _ in range(4))
         self.STSet = None
-        self.batchSize = hparams.batchSize
+        self.batchSize = batchSize
 
         # Dataset transformation parameters
-        self.grayscale = hparams.grayscale
-        self.newRes = (hparams.height, hparams.width)
+        self.grayscale = gray
+        self.height, self.width = height, width
 
         # Training parameters
         self.criterion = nn.CrossEntropyLoss()
-        self.lr = hparams.learningRate
-        self.decay = hparams.decay
+        self.lr = lr
+        self.decay = decay
+
+        # save hyperparameters
+        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay')
+        print(f"The model has the following hyperparameters:")
+        print(self.hparams)
 
         # Network parts
         self.featureExtractor = FCDenseNet57Base()
         self.classifier = FCDenseNet57Classifier(n_classes=2)
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+
+        # parametrize the network
+        parser.add_argument('--gray', action='store_true')
+        parser.add_argument('-wd', '--width', type=int, default=160)
+        parser.add_argument('-hg', '--height', type=int, default=120)
+
+        # Training hyperparams
+        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3)
+        parser.add_argument('--decay', type=float, default=1e-4)
+        parser.add_argument('-b', '--batchSize', type=int, default=32)
+
+        return parser
 
     def forward(self, x):
         x = self.featureExtractor(x)
         x = self.classifier(x)
         return x
 
-    def transform(self, img, label):
-        img = TF.to_pil_image(img)
-        if self.grayscale:
-            img = TF.to_grayscale(img)
-        img = TF.resize(img, self.newRes, interpolation=Image.LANCZOS)
-        img = TF.to_tensor(img)
+    def transform(self, img, label=None):
+        aug = Compose([
+            Blur(p=0.5),
+            Resize(height=self.height, width=self.width, always_apply=True),
+            ToGray(always_apply=True) if self.grayscale else NoOp(always_apply=True),
+            ToTensor(),
+        ])
 
         if label is not None and len(label.shape) >= 2:
-            label = TF.to_pil_image(label)
-            label = TF.resize(label, self.newRes, interpolation=Image.NEAREST)
-            label = TF.to_tensor(label).squeeze()
-            label = label / torch.max(label)
-            label = label.long()
+            # Binarize label
+            label[label != 0] = 255
+
+            augmented = aug(image=img, mask=label)
+            img = augmented['image']
+            label = augmented['mask'].squeeze().long()
+        else:
+            augmented = aug(image=img)
+            img = augmented['image']
 
         return img, label
 
@@ -151,44 +175,37 @@ class RightLaneMMEModule(pl.LightningModule):
 
 
 def main(args):
-    model = RightLaneMMEModule(hparams=args)
+    model = RightLaneMMEModule(**vars(args))
     model.load_state_dict(torch.load(args.pretrained_path))
 
-    # makes all trainer options available from the command line
-    # trainer = pl.Trainer.from_argparse_args(args)
-
-    # makes use of pre-defined options
-    trainer = pl.Trainer(gpus=1, max_epochs=args.numEpochs, progress_bar_refresh_rate=2,
-                         default_save_path='results', fast_dev_run=args.test)
+    # parse all trainer options available from the command line
+    trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model)
-    trainer.save_checkpoint('./results/FCDenseNet57MME.ckpt')
+    trainer.save_checkpoint(args.ckpt_save_path)
+    if args.weights_save_path is not None:
+        torch.save(model.state_dict(), args.weights_save_path)
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
+    assert torch.cuda.device_count() <= 1  # Do not allow the use of more than one GPUs
 
     parser = ArgumentParser()
 
-    # adds all the trainer options as default arguments (like max_epochs)
-    # parser = pl.Trainer.add_argparse_args(parser)
+    # Program arguments
+    parser.add_argument('--dataPath', type=str, default='./data')  # Data location
+    parser.add_argument('--ckpt_save_path', type=str, default='./results/FCDenseNet57MME.ckpt')
+    # parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57MMEweights.pth')
 
     # Need pretrained weights
     parser.add_argument('--pretrained_path', type=str, default='./results/FCDenseNet57weights.pth')
-    parser.add_argument('--dataPath', type=str, default='./data')
 
-    # parametrize the network
-    parser.add_argument('--grayscale', action='store_true')
-    parser.add_argument('--width', type=int, default=160)
-    parser.add_argument('--height', type=int, default=120)
+    # Add model arguments to parser
+    parser = RightLaneMMEModule.add_model_specific_args(parser)
 
-    # parametrize training
-    parser.add_argument('--test', action='store_true')
-    parser.add_argument('--batchSize', type=int, default=16)
-    parser.add_argument('--learningRate', type=float, default=1e-3)
-    parser.add_argument('--decay', type=float, default=1e-4)
-    parser.add_argument('--numEpochs', type=int, default=2)
+    # Adds all the trainer options as default arguments (like max_epochs)
+    parser = pl.Trainer.add_argparse_args(parser)
+
     args = parser.parse_args()
 
-    print(args)
     main(args)

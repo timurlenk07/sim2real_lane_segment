@@ -40,7 +40,7 @@ class RightLaneDataset(Dataset):
         if self.haveLabels:
             y = cv2.imread(os.path.join(self._target_dir, filename), cv2.IMREAD_GRAYSCALE)
         else:
-            y = torch.empty(0)
+            y = torch.empty(0, dtype=torch.long)
 
         if self.transform is not None:
             x, y = self.transform(x, y)

@@ -198,7 +198,8 @@ def main(args):
 
     trainer.fit(model)
     trainer.save_checkpoint(args.ckpt_save_path)
-    torch.save(model.state_dict(), args.weights_save_path)
+    if args.weights_save_path is not None:
+        torch.save(model.state_dict(), args.weights_save_path)
     trainer.test(model)
 
 
@@ -208,7 +209,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--ckpt_save_path', type=str, default='./results/FCDenseNet57.ckpt')
-    parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57weights.pth')
+    # parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57weights.pth')
     parser = RightLaneModule.add_model_specific_args(parser)
 
     # adds all the trainer options as default arguments (like max_epochs)

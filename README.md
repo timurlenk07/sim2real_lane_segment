@@ -75,7 +75,18 @@ realData
 When SSDA training is used, the following directory structure is expected (after preprocessing):
 ```
 dataSSDA
-TODO
+├── source
+│   ├── input
+│   └── label
+└── target
+    ├── test
+    │   ├── input
+    │   └── label
+    ├── train
+    │   ├── input
+    │   └── label
+    └── unlabelled
+        └── input
 ```
 
 ### Base architectures
@@ -92,3 +103,35 @@ So after some advice I tried Semi-Supervised Domain Adaptation with Minimax Entr
 Fortunately the authors also publicised their own code written in PyTorch, found [here](https://github.com/VisionLearningGroup/SSDA_MME) and it is the current focus to apply the methods they have implemented.
 
 With domain adaptation my hope is that the domain gap can easily be stepped over in this segmentation task.
+
+## Usage
+The training process consisted of three (plus one) separate model training:
+- Simulator baseline training
+- Same training on domain-converted sim data (via CycleGAN - plus one training)
+- SSDA MME training
+
+### Simulator baseline
+Simulator baseline training can be reproduced using the following command:
+```
+CUDA_VISIBLE_DEVICES=0 python3.6 RightLaneModule.py --gpus=1 --dataPath ./simData --batchSize 64 --max_epochs 150
+```
+
+Naturally CUDA and GPU dependent parameters can be changed to better utilize the hardware.
+
+### Domain Transformation using CycleGAN
+After CycleGAN training for sim-to-real conversion the training process is the same.
+Simulator baseline training can be reproduced using the following command:
+```
+CUDA_VISIBLE_DEVICES=0 python3.6 RightLaneModule.py --gpus=1 --dataPath ./simData --batchSize 64 --max_epochs 150
+```
+
+### SSDA via Minimax Entropy
+The training script uses the baseline weights to shorten the training process.
+Otherwise it has the same parameters as the baseline training.
+Simulator baseline training can be reproduced using the following command:
+```
+CUDA_VISIBLE_DEVICES=0 python3.6 RightLaneMMEModule.py --gpus=1 --dataPath ./realData --pretrained_path results/FCDenseNet57weights.pth --batchSize 64 --max_epochs 150
+```
+
+### Testing
+TODO

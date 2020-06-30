@@ -7,40 +7,26 @@ import cv2
 import numpy as np
 import torch
 
-from RightLaneModule import myTransformation
 from models.FCDenseNet.tiramisu import FCDenseNet57
 
-if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
 
-    parser = ArgumentParser()
-
-    parser.add_argument('--showCount', type=int, default=4)
-    parser.add_argument('--realPath', type=str, default='./data/input')
-    parser.add_argument('--baseline_path', type=str, default='./FCDenseNet57weights.pth')
-    parser.add_argument('--cyclegan_path', type=str, default='./FCDenseNet57GANweights.pth')
-    parser.add_argument('--mme_path', type=str, default='./FCDenseNet57MMEweights.pth')
-    args = parser.parse_args()
-
-    img_paths = glob.glob(os.path.join(args.realPath, '*.png'))
-    random.shuffle(img_paths)
-    img_paths = img_paths[:args.showCount]
+def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
+    img_paths = glob.glob(os.path.join(dataPath, '*.png'))
+    img_paths = random.sample(img_paths, showCount)
 
     models = [FCDenseNet57(2, 1), FCDenseNet57(2, 3), FCDenseNet57(2, 1)]
 
-    models[0].load_state_dict(torch.load(args.baseline_path))
-    models[1].load_state_dict(torch.load(args.cyclegan_path))
-    models[2].load_state_dict(torch.load(args.mme_path))
+    models[0].load_state_dict(torch.load(baselinePath))
+    models[1].load_state_dict(torch.load(cycleganPath))
+    models[2].load_state_dict(torch.load(mmePath))
     for i in range(len(models)):
         models[i].eval()
 
-    transform = myTransformation
-
-    finalResult = np.empty([0, 640, 3], dtype=np.uint8)
+    finalResult = np.empty([0, 4 * 160, 3], dtype=np.uint8)
     for img_path in img_paths:
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
 
-        img_batch = [transform(img, None), transform(img, None), transform(img, None)]
+        img_batch = [transform(img, None) for model in models]
         img_batch = [img_[0].unsqueeze(0) for img_ in img_batch]
 
         pred_imgs = []
@@ -61,4 +47,20 @@ if __name__ == '__main__':
         result = np.concatenate(imgs, axis=1)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
-    cv2.imwrite('results/exampleResult.png', finalResult)
+    cv2.imwrite('results/comparison.png', finalResult)
+
+
+if __name__ == '__main__':
+    assert torch.cuda.device_count() <= 1
+
+    parser = ArgumentParser()
+
+    parser.add_argument('--showCount', type=int, default=4)
+    parser.add_argument('--dataPath', type=str, default='./data/input')
+    parser.add_argument('--baselinePath', type=str, default='./FCDenseNet57weights.pth')
+    parser.add_argument('--cycleganPath', type=str, default='./FCDenseNet57GANweights.pth')
+    parser.add_argument('--mmePath', type=str, default='./FCDenseNet57MMEweights.pth')
+    args = parser.parse_args()
+    print(vars(args))
+
+    main(**vars(args))

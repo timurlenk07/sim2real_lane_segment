@@ -134,4 +134,11 @@ CUDA_VISIBLE_DEVICES=0 python3.6 RightLaneMMEModule.py --gpus=1 --dataPath ./rea
 ```
 
 ### Testing
-TODO
+Trained model evaluation can be done using the provided script test.py.
+It takes command line arguments, see help for details.
+
+Comparison of trained models can be done using comparison.py that generates an image file with sample predictions of each model.
+Note: this script is currently not working.
+
+One is able to make predictions for a video (stream of images) via makeDemoVideo.py.
+Note: this script is currently not working.

@@ -16,7 +16,7 @@ from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
 class RightLaneModule(pl.LightningModule):
-    def __init__(self, dataPath, width=160, height=120, gray=False,
+    def __init__(self, *, dataPath=None, width=160, height=120, gray=False,
                  batchSize=32, lr=1e-3, decay=1e-4, lrRatio=1e3, **kwargs):
         super().__init__()
 

@@ -56,7 +56,7 @@ def main(*, module_type, checkpoint_path, showCount, realDataPath, trainDataPath
         result = np.concatenate((train_img, train_img2, real_img, real_img2), axis=1)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
-    cv2.imwrite('results/predsReal.png', finalResult)
+    cv2.imwrite('results/samplePredictions.png', finalResult)
 
     # Perform qualitative evaluation
     testDataset = RightLaneDataset(testDataPath, transform=transform)

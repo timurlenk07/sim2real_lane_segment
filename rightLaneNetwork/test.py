@@ -12,7 +12,7 @@ from RightLaneModule import RightLaneModule
 from dataManagement.myDatasets import RightLaneDataset
 
 
-def main(*, module_type, checkpoint_path, showCount, realDataPath, simDataPath, testDataPath, **kwargs):
+def main(*, module_type, checkpoint_path, showCount, realDataPath, trainDataPath, testDataPath, **kwargs):
     # Parse model
     if module_type == 'MME':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpoint_path)
@@ -27,29 +27,33 @@ def main(*, module_type, checkpoint_path, showCount, realDataPath, simDataPath, 
     # Get transformation from model
     transform = model.transform
 
-    # Get real images from folder
-    img_paths = glob.glob(os.path.join(realDataPath, '*.png'))
+    # Randomly sample showCount number of images from training and real folders
+    train_img_paths = glob.glob(os.path.join(trainDataPath, '*.png'))
+    train_img_paths = random.sample(train_img_paths, showCount)
+    real_img_paths = glob.glob(os.path.join(realDataPath, '*.png'))
+    real_img_paths = random.sample(real_img_paths, showCount)
 
-    # Randomly sample showCount number of images
-    img_paths = random.sample(img_paths, showCount)
-    # img_paths = img_paths[:showCount]
+    # Create samples from training and real image predictions
+    finalResult = np.empty([0, 4 * model.width, 3], dtype=np.uint8)
+    for train_img_path, real_img_path in zip(train_img_paths, real_img_paths):
+        train_img = cv2.imread(train_img_path, cv2.IMREAD_COLOR)
+        train_img = cv2.resize(train_img, (model.width, model.height), cv2.INTER_LANCZOS4)
+        real_img = cv2.imread(real_img_path, cv2.IMREAD_COLOR)
+        real_img = cv2.resize(real_img, (model.width, model.height), cv2.INTER_LANCZOS4)
 
-    # Create samples from real image predictions
-    finalResult = np.empty([0, 2 * model.width, 3], dtype=np.uint8)
-    for i, img_path in enumerate(img_paths):
-        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        img = cv2.resize(img, (model.width, model.height), cv2.INTER_LANCZOS4)
+        img_batch = [train_img, real_img]
+        img_batch = torch.stack([transform(img_, None)[0] for img_ in img_batch])
 
-        img_prep, _ = transform(img, None)
-        img_prep = img_prep.unsqueeze(0)
+        _, pred = torch.max(model.forward(img_batch), 1)
+        pred = pred.byte()
+        pred = [pred_.squeeze().numpy() for pred_ in pred]
 
-        _, pred = torch.max(model.forward(img_prep), 1)
-        pred = pred.byte().numpy().squeeze()
+        train_img2 = train_img.copy()
+        train_img2[pred[0] > 0.5] = (0, 0, 255)
+        real_img2 = real_img.copy()
+        real_img2[pred[1] > 0.5] = (0, 0, 255)
 
-        img2 = img.copy()
-        img2[pred > 0.5] = (0, 0, 255)
-
-        result = np.concatenate((img, img2), axis=1)
+        result = np.concatenate((train_img, train_img2, real_img, real_img2), axis=1)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
     cv2.imwrite('results/predsReal.png', finalResult)
@@ -79,7 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=str, default='./results/FCDenseNet57.ckpt')
     parser.add_argument('-c', '--showCount', type=int, default=5)
     parser.add_argument('--realDataPath', type=str, default='./data/input')
-    parser.add_argument('--simDataPath', type=str, default='./data/input')
+    parser.add_argument('--trainDataPath', type=str, default='./data/input')
     parser.add_argument('--testDataPath', type=str, default='./data')
     args = parser.parse_args()
     print(vars(args))

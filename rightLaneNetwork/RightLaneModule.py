@@ -48,15 +48,16 @@ class RightLaneModule(pl.LightningModule):
         parser.add_argument('--dataPath', type=str, default='./data')
 
         # parametrize the network
-        parser.add_argument('--gray', action='store_true')
-        parser.add_argument('-wd', '--width', type=int, default=160)
-        parser.add_argument('-hg', '--height', type=int, default=120)
+        parser.add_argument('--gray', action='store_true', help='Convert input image to grayscale')
+        parser.add_argument('-wd', '--width', type=int, default=160, help='Resized input image width')
+        parser.add_argument('-hg', '--height', type=int, default=120, help='Resized input image height')
 
         # Training hyperparams
-        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3)
-        parser.add_argument('--decay', type=float, default=1e-4)
+        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
+        parser.add_argument('--decay', type=float, default=1e-4,
+                            help='L2 weight decay value')
         parser.add_argument('--lrRatio', type=float, default=1000)
-        parser.add_argument('-b', '--batchSize', type=int, default=32)
+        parser.add_argument('-b', '--batchSize', type=int, default=32, help='Input batch size')
 
         return parser
 

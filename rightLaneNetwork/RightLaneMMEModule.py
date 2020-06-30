@@ -54,14 +54,15 @@ class RightLaneMMEModule(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
         # parametrize the network
-        parser.add_argument('--gray', action='store_true')
-        parser.add_argument('-wd', '--width', type=int, default=160)
-        parser.add_argument('-hg', '--height', type=int, default=120)
+        parser.add_argument('--gray', action='store_true', help='Convert input image to grayscale')
+        parser.add_argument('-wd', '--width', type=int, default=160, help='Resized input image width')
+        parser.add_argument('-hg', '--height', type=int, default=120, help='Resized input image height')
 
         # Training hyperparams
-        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3)
-        parser.add_argument('--decay', type=float, default=1e-4)
-        parser.add_argument('-b', '--batchSize', type=int, default=32)
+        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
+        parser.add_argument('--decay', type=float, default=1e-4,
+                            help='L2 weight decay value')
+        parser.add_argument('-b', '--batchSize', type=int, default=32, help='Input batch size')
 
         return parser
 
@@ -123,9 +124,6 @@ class RightLaneMMEModule(pl.LightningModule):
         return [optimizerF, optimizerG]  # , [lr_schedulerF, lr_schedulerG]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
-        # (x_labelled_a, x_labelled_b), x_unlabelled, (labels_a, labels_b), _ = batch
-        # x_labelled = torch.cat([x_labelled_a, x_labelled_b], dim=0)
-        # labels = torch.cat([labels_a, labels_b], dim=0)
         x_labelled, x_unlabelled, labels, _ = batch
 
         if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
@@ -193,12 +191,13 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     # Program arguments
-    parser.add_argument('--dataPath', type=str, default='./data')  # Data location
+    parser.add_argument('--dataPath', type=str, default='./data', help='Data root folder')  # Data location
     parser.add_argument('--ckpt_save_path', type=str, default='./results/FCDenseNet57MME.ckpt')
     # parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57MMEweights.pth')
 
     # Need pretrained weights
-    parser.add_argument('--pretrained_path', type=str, default='./results/FCDenseNet57weights.pth')
+    parser.add_argument('--pretrained_path', type=str, default='./results/FCDenseNet57weights.pth',
+                        help='This script uses pretrained weights for FCDenseNet. Define path to weights here.')
 
     # Add model arguments to parser
     parser = RightLaneMMEModule.add_model_specific_args(parser)

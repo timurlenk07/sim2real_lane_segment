@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import torch
 
+from dataManagement.myTransforms import testTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57
 
 
@@ -26,8 +27,7 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
     for img_path in img_paths:
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
 
-        img_batch = [transform(img, None) for model in models]
-        img_batch = [img_[0].unsqueeze(0) for img_ in img_batch]
+        img_batch = [testTransform(img, width=160, height=120, gray=False)[0].unsqueeze(0) for _ in models]
 
         pred_imgs = []
         for model, img_ in zip(models, img_batch):
@@ -38,7 +38,7 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
 
         img = cv2.resize(img, (160, 120), cv2.INTER_LANCZOS4)
         imgs = [img]
-        # pred_imgs[2] = np.transpose(pred_imgs[2])
+
         for pred in pred_imgs:
             img2 = img.copy()
             img2[pred] = (0, 0, 255)
@@ -48,6 +48,7 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
         finalResult = np.concatenate((finalResult, result), axis=0)
 
     cv2.imwrite('results/comparison.png', finalResult)
+    print("results/comparison.png created.")
 
 
 if __name__ == '__main__':

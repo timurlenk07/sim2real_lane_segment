@@ -1,3 +1,4 @@
+import functools
 import glob
 import os.path
 import random
@@ -10,22 +11,23 @@ import torch
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
 from dataManagement.myDatasets import RightLaneDataset
+from dataManagement.myTransforms import testTransform
 
 
-def main(*, module_type, checkpoint_path, showCount, realDataPath, trainDataPath, testDataPath, **kwargs):
+def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath, testDataPath, **kwargs):
     # Parse model
     if module_type == 'MME':
-        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpoint_path)
+        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     elif module_type in ['baseline', 'CycleGAN']:
-        model = RightLaneModule.load_from_checkpoint(checkpoint_path=checkpoint_path)
+        model = RightLaneModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     else:
-        raise RuntimeError(f"Cannot recognize module type {args.module_type}")
+        raise RuntimeError(f"Cannot recognize module type {module_type}")
 
     model.eval()
     print(f"Loaded {model.__class__} instance.")
 
-    # Get transformation from model
-    transform = model.transform
+    # Get transform function
+    transform = functools.partial(testTransform, width=model.width, height=model.height, gray=model.grayscale)
 
     # Randomly sample showCount number of images from training and real folders
     train_img_paths = glob.glob(os.path.join(trainDataPath, '*.png'))
@@ -42,7 +44,7 @@ def main(*, module_type, checkpoint_path, showCount, realDataPath, trainDataPath
         real_img = cv2.resize(real_img, (model.width, model.height), cv2.INTER_LANCZOS4)
 
         img_batch = [train_img, real_img]
-        img_batch = torch.stack([transform(img_, None)[0] for img_ in img_batch])
+        img_batch = torch.stack([transform(img_)[0] for img_ in img_batch])
 
         _, pred = torch.max(model.forward(img_batch), 1)
         pred = pred.byte()
@@ -80,7 +82,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME'])
-    parser.add_argument('--checkpoint_path', type=str, default='./results/FCDenseNet57.ckpt')
+    parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
     parser.add_argument('-c', '--showCount', type=int, default=5)
     parser.add_argument('--realDataPath', type=str, default='./data/input')
     parser.add_argument('--trainDataPath', type=str, default='./data/input')

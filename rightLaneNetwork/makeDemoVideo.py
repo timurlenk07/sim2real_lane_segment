@@ -1,34 +1,35 @@
+import functools
 import os
 from argparse import ArgumentParser
 
 import cv2
 import torch
+from tqdm import trange
 
 from RightLaneMMEModule import RightLaneMMEModule
-from RightLaneModule import RightLaneModule, myTransformation
+from RightLaneModule import RightLaneModule
+from dataManagement.myTransforms import testTransform
 
 
-def main(inputVideo, outputVideo, model, transform, args=None):
+def main(inputVideo, outputVideo, model, transform):
     cap_in = cv2.VideoCapture(inputVideo)
 
     fourcc = cv2.VideoWriter_fourcc(*'FFV1')
     fps = cap_in.get(cv2.CAP_PROP_FPS)
-    framesize = (160, 120)
-    isColor = True
+    framesize = (model.width, model.height)
+    isColor = not model.grayscale
     w_out = cv2.VideoWriter(outputVideo, fourcc, fps, framesize, isColor)
 
-    while cap_in.isOpened() and w_out.isOpened():
+    for _ in trange(int(cap_in.get(cv2.CAP_PROP_FRAME_COUNT))):
         ret, frame = cap_in.read()
         if not ret:
-            break
+            continue
 
-        frame_in, _ = transform(frame, None)
+        frame_in, _ = transform(frame)
         frame_in = frame_in.unsqueeze(0)
 
         _, pred = torch.max(model.forward(frame_in), 1)
         pred = pred.byte().numpy().squeeze()
-        if args.test_mme:
-            pass  # pred = pred.transpose(-1, -2)  # Trained with PIL transforms as preprocess
 
         frame_out = cv2.resize(frame, framesize, cv2.INTER_LANCZOS4)
         frame_out[pred > 0.5] = (0, 0, 255)
@@ -44,8 +45,8 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
 
-    parser.add_argument('--test_mme', action='store_true')
-    parser.add_argument('--modelCheckpoint', type=str, default='./results/FCDenseNet57.ckpt')
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME'])
+    parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
     parser.add_argument('--videoPath', type=str, default='./testVideo.avi')
     parser.add_argument('--outputPath', type=str, default='./demoVideo.avi')
     args = parser.parse_args()
@@ -53,12 +54,16 @@ if __name__ == '__main__':
     if os.path.exists(args.outputPath):
         os.remove(args.outputPath)
 
-    if args.test_mme:
-        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=args.modelCheckpoint)
+    # Parse model
+    if args.module_type == 'MME':
+        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
+    elif args.module_type in ['baseline', 'CycleGAN']:
+        model = RightLaneModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
     else:
-        model = RightLaneModule.load_from_checkpoint(checkpoint_path=args.modelCheckpoint)
+        raise RuntimeError(f"Cannot recognize module type {args.module_type}")
 
-    transformation = myTransformation if not args.test_mme else model.transform
+    # Get transform function
+    transform = functools.partial(testTransform, width=model.width, height=model.height, gray=model.grayscale)
 
     model.eval()
-    main(args.videoPath, args.outputPath, model, transformation, args)
+    main(args.videoPath, args.outputPath, model, transform)

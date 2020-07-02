@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from albumentations import Compose, ToGray, Resize, Blur, NoOp
 from albumentations.pytorch import ToTensor
-from pytorch_lightning.metrics import Accuracy
+from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -114,13 +114,13 @@ class RightLaneModule(pl.LightningModule):
 
         # acc
         _, labels_hat = torch.max(outputs, 1)
-        train_acc = labels_hat.eq(y).sum() * 100.0 / y.numel()
+        train_acc = accuracy(labels_hat, y)
 
         progress_bar = {
-            'train_acc': train_acc
+            'tr_acc': train_acc
         }
         logs = {
-            'tloss': loss,
+            'train_loss': loss,
             'train_acc': train_acc
         }
 
@@ -145,20 +145,28 @@ class RightLaneModule(pl.LightningModule):
 
         output = OrderedDict({
             'val_loss': loss,
-            'correct': correct,
-            'total': total,
+            'acc': accuracy(labels_hat, y),
+            'dice': dice_score(labels_hat, y),
+            'iou': iou(labels_hat, y, remove_bg=True),
+            'weight': y.shape[0],
         })
 
         return output
 
     def validation_epoch_end(self, outputs):
-        val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        correct = torch.stack([x['correct'] for x in outputs]).sum()
-        total = torch.stack([x['total'] for x in outputs]).sum()
-        val_acc = correct * 100.0 / total
+        test_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        weight_count = sum(x['weight'] for x in outputs)
+        weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
+        weighted_dice = torch.stack([x['dice'] * 100.0 * x['weight'] for x in outputs]).sum()
+        weighted_iou = torch.stack([x['iou'] * 100.0 * x['weight'] for x in outputs]).sum()
+        test_acc = weighted_acc / weight_count
+        test_dice = weighted_dice / weight_count
+        test_iou = weighted_iou / weight_count
 
-        tensorboard_logs = {'val_loss': val_loss,
-                            'val_acc': val_acc}
+        tensorboard_logs = {'val_loss': test_loss,
+                            'val_acc': test_acc,
+                            'val_dice': test_dice,
+                            'val_iou': test_iou}
         return {'progress_bar': tensorboard_logs, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
@@ -170,11 +178,12 @@ class RightLaneModule(pl.LightningModule):
 
         # acc
         _, labels_hat = torch.max(outputs, 1)
-        acc = Accuracy()(labels_hat, y)
 
         output = OrderedDict({
             'test_loss': loss,
-            'acc': acc,
+            'acc': accuracy(labels_hat, y),
+            'dice': dice_score(labels_hat, y),
+            'iou': iou(labels_hat, y, remove_bg=True),
             'weight': y.shape[0],
         })
 
@@ -184,23 +193,32 @@ class RightLaneModule(pl.LightningModule):
         test_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         weight_count = sum(x['weight'] for x in outputs)
         weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
-        val_acc = weighted_acc / weight_count
+        weighted_dice = torch.stack([x['dice'] * 100.0 * x['weight'] for x in outputs]).sum()
+        weighted_iou = torch.stack([x['iou'] * 100.0 * x['weight'] for x in outputs]).sum()
+        test_acc = weighted_acc / weight_count
+        test_dice = weighted_dice / weight_count
+        test_iou = weighted_iou / weight_count
 
         tensorboard_logs = {'test_loss': test_loss,
-                            'test_acc': val_acc}
+                            'test_acc': test_acc,
+                            'test_dice': test_dice,
+                            'test_iou': test_iou}
         return {'progress_bar': tensorboard_logs, 'log': tensorboard_logs}
 
 
 def main(args):
     model = RightLaneModule(**vars(args))
 
-    # parse all trainer options available from the command line
+    # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model)
-    trainer.save_checkpoint(args.ckpt_save_path)
-    if args.weights_save_path is not None:
-        torch.save(model.state_dict(), args.weights_save_path)
+
+    # Save checkpoint and weights
+    trainer.save_checkpoint(args.ckpt_path)
+    torch.save(model.state_dict(), args.weights_path)
+
+    # Perform testing
     trainer.test(model)
 
 
@@ -209,11 +227,11 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
 
-    parser.add_argument('--ckpt_save_path', type=str, default='./results/FCDenseNet57.ckpt')
-    # parser.add_argument('--weights_save_path', type=str, default='./results/FCDenseNet57weights.pth')
+    parser.add_argument('--ckpt_path', type=str, default='./results/FCDenseNet57.ckpt')
+    parser.add_argument('--weights_path', type=str, default='./results/FCDenseNet57weights.pth')
     parser = RightLaneModule.add_model_specific_args(parser)
 
-    # adds all the trainer options as default arguments (like max_epochs)
+    # Adds all the trainer options as default arguments (like max_epochs)
     parser = pl.Trainer.add_argparse_args(parser)
 
     args = parser.parse_args()

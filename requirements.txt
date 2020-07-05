@@ -13,4 +13,4 @@ tqdm~=4.46.1
 torchvision~=0.6.1+cu101
 Pillow~=7.0.0
 albumentations~=0.4.5
-torchnet~=0.0.4
+pytorch-lightning~=0.8.4

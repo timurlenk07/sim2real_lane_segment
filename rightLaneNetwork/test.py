@@ -10,6 +10,7 @@ import torch
 
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
+from RightLaneSTModule import RightLaneSTModule
 from dataManagement.myDatasets import RightLaneDataset
 from dataManagement.myTransforms import testTransform
 
@@ -20,6 +21,8 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     elif module_type in ['baseline', 'CycleGAN']:
         model = RightLaneModule.load_from_checkpoint(checkpoint_path=checkpointPath)
+    elif module_type == 'sandt':
+        model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     else:
         raise RuntimeError(f"Cannot recognize module type {module_type}")
 
@@ -77,11 +80,9 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
-
     parser = ArgumentParser()
 
-    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME'])
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME', 'sandt'])
     parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
     parser.add_argument('-c', '--showCount', type=int, default=5)
     parser.add_argument('--realDataPath', type=str, default='./data/input')

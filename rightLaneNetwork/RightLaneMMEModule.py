@@ -110,12 +110,14 @@ class RightLaneMMEModule(pl.LightningModule):
     def train_dataloader(self):
         STSet = ConcatDataset([self.sourceSet, self.targetTrainSet])
         parallelDataset = ParallelDataset(STSet, self.targetUnlabelledSet)
-        weights = [1 for _ in range(len(self.sourceSet))]
-        weights.extend([len(self.sourceSet) / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))])
+        assert len(STSet) <= len(self.targetUnlabelledSet)
+
+        source_weights = [1.0 / len(self.sourceSet) for _ in range(len(self.sourceSet))]
+        target_weights = [1.0 / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))]
+        weights = [*source_weights, *target_weights]
+
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet))
-        trainLoader = DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler,
-                                 shuffle=False, num_workers=4)
-        return trainLoader
+        return DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler, shuffle=False, num_workers=4)
 
     def val_dataloader(self):
         valLoader = DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=4)

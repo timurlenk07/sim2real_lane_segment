@@ -8,6 +8,7 @@ from tqdm import trange
 
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
+from RightLaneSTModule import RightLaneSTModule
 from dataManagement.myTransforms import testTransform
 
 
@@ -45,7 +46,7 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
 
-    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME'])
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME', 'sandt'])
     parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
     parser.add_argument('--videoPath', type=str, default='./testVideo.avi')
     parser.add_argument('--outputPath', type=str, default='./demoVideo.avi')
@@ -59,6 +60,8 @@ if __name__ == '__main__':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
     elif args.module_type in ['baseline', 'CycleGAN']:
         model = RightLaneModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
+    elif args.module_type == 'sandt':
+        model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
     else:
         raise RuntimeError(f"Cannot recognize module type {args.module_type}")
 

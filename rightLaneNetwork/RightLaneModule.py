@@ -160,19 +160,19 @@ class RightLaneModule(pl.LightningModule):
         return output
 
     def validation_epoch_end(self, outputs):
-        test_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         weight_count = sum(x['weight'] for x in outputs)
         weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
         weighted_dice = torch.stack([x['dice'] * 100.0 * x['weight'] for x in outputs]).sum()
         weighted_iou = torch.stack([x['iou'] * 100.0 * x['weight'] for x in outputs]).sum()
-        test_acc = weighted_acc / weight_count
-        test_dice = weighted_dice / weight_count
-        test_iou = weighted_iou / weight_count
+        val_acc = weighted_acc / weight_count
+        val_dice = weighted_dice / weight_count
+        val_iou = weighted_iou / weight_count
 
-        tensorboard_logs = {'val_loss': test_loss,
-                            'val_acc': test_acc,
-                            'val_dice': test_dice,
-                            'val_iou': test_iou}
+        tensorboard_logs = {'val_loss': val_loss,
+                            'val_acc': val_acc,
+                            'val_dice': val_dice,
+                            'val_iou': val_iou}
         return {'progress_bar': tensorboard_logs, 'log': tensorboard_logs}
 
     def test_step(self, batch, batch_idx):
@@ -215,6 +215,14 @@ class RightLaneModule(pl.LightningModule):
 def main(args):
     model = RightLaneModule(**vars(args))
 
+    if args.comet:
+        comet_logger = pl.loggers.CometLogger(api_key=os.environ.get('COMET_API_KEY'),
+                                              workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
+                                              project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
+                                              experiment_name='baseline'  # Optional
+                                              )
+        args.logger = comet_logger
+
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
@@ -233,6 +241,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
+
+    parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
 
     # Add model arguments to parser
     parser = RightLaneModule.add_model_specific_args(parser)

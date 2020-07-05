@@ -1,40 +1,21 @@
 import logging
+import os
 
 import torch
-import torchvision.transforms.functional as TF
-from PIL import Image
 from torch.utils.data import DataLoader
 
-from .getData import getRightLaneDatasets, getRightLaneDatasetsMME
-from .myDatasets import ParallelDataset
+from .myDatasets import ParallelDataset, RightLaneDataset
+from .myTransforms import testTransform
 
-assert torch.cuda.device_count() <= 1
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s]: %(message)s')
 haveCuda = torch.cuda.is_available()
 
 
-def myTransformation(img, label):
-    newRes = (120, 160)
-    img = TF.to_pil_image(img)
-    img = TF.to_grayscale(img)
-    img = TF.resize(img, newRes, interpolation=Image.LANCZOS)
-    img = TF.to_tensor(img)
-
-    if label is not None and len(label.shape) >= 2:
-        label = TF.to_pil_image(label)
-        label = TF.resize(label, newRes, interpolation=Image.LANCZOS)
-        label = TF.to_tensor(label).squeeze()
-        label[label > 0.5] = 1
-        label[label != 1] = 0
-        label = label.long()
-
-    return img, label
-
-
 def makeTests():
-    # Adatbázis építés
-    datasets = getRightLaneDatasets('./data', transform=myTransformation)
-    trainSet, validSet, testSet = datasets
+    # Database building
+    trainSet = RightLaneDataset(os.path.join('data', 'train'), testTransform, haveLabels=True)
+    validSet = RightLaneDataset(os.path.join('data', 'valid'), testTransform, haveLabels=True)
+    testSet = RightLaneDataset(os.path.join('data', 'test'), testTransform, haveLabels=True)
     print(f"Dataset lengths: {len(trainSet)}, {len(validSet)}, {len(testSet)}")
 
     x, y = trainSet[0]
@@ -49,9 +30,12 @@ def makeTests():
 
 
 def makeTestsMME():
-    # Adatbázis építés
-    datasets = getRightLaneDatasetsMME('./data', transform=myTransformation)
-    sourceSet, targetTrainSet, targetUnlabelledSet, targetTestSet = datasets
+    # Database building
+    sourceSet = RightLaneDataset(os.path.join('data', 'source'), testTransform, haveLabels=True)
+    targetTrainSet = RightLaneDataset(os.path.join('data', 'target', 'train'), testTransform, haveLabels=True)
+    targetUnlabelledSet = RightLaneDataset(os.path.join('data', 'target', 'unlabelled'),
+                                           testTransform, haveLabels=False)
+    targetTestSet = RightLaneDataset(os.path.join('data', 'target', 'test'), testTransform, haveLabels=True)
     print(f"Dataset lengths: {len(sourceSet)}, {len(targetTrainSet)}, " +
           f"{len(targetUnlabelledSet)}, {len(targetTestSet)}")
 
@@ -73,5 +57,6 @@ def makeTestsMME():
     a, b, c, d = batch
     print(a.shape, b.shape, c.shape, d.shape)
 
-
-makeTestsMME()
+# Uncomment the tests to perform them
+# makeTests()
+# makeTestsMME()

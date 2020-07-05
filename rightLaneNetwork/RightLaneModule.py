@@ -1,3 +1,5 @@
+import functools
+import os
 from argparse import ArgumentParser
 from collections import OrderedDict
 
@@ -11,7 +13,8 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from dataManagement.getData import getRightLaneDatasets
+from dataManagement.myDatasets import RightLaneDataset
+from dataManagement.myTransforms import testTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
@@ -21,7 +24,7 @@ class RightLaneModule(pl.LightningModule):
         super().__init__()
 
         self.dataPath = dataPath
-        self.trainSet, self.validSet, self.testSet = (None for _ in range(3))
+        self.trainSet, self.validSet, self.testSet = None, None, None
 
         self.width, self.height = width, height
         self.grayscale = gray
@@ -88,8 +91,11 @@ class RightLaneModule(pl.LightningModule):
         return img, label
 
     def prepare_data(self):
-        dataSets = getRightLaneDatasets(self.dataPath, transform=self.transform)
-        self.trainSet, self.validSet, self.testSet = dataSets
+        testTransform2 = functools.partial(testTransform, width=self.width, height=self.height, gray=self.grayscale)
+
+        self.trainSet = RightLaneDataset(os.path.join(self.dataPath, 'train'), self.transform, haveLabels=True)
+        self.validSet = RightLaneDataset(os.path.join(self.dataPath, 'valid'), testTransform2, haveLabels=True)
+        self.testSet = RightLaneDataset(os.path.join(self.dataPath, 'test'), testTransform2, haveLabels=True)
 
     def train_dataloader(self):
         return DataLoader(self.trainSet, batch_size=self.batchSize, shuffle=True, num_workers=8)
@@ -215,20 +221,20 @@ def main(args):
     trainer.fit(model)
 
     # Save checkpoint and weights
-    trainer.save_checkpoint(args.ckpt_path)
-    torch.save(model.state_dict(), args.weights_path)
+    root_dir = args.default_root_dir if args.default_root_dir is not None else 'results'
+    ckpt_path = os.path.join(root_dir, 'baseline.ckpt')
+    weights_path = os.path.join(root_dir, 'baseline_weights.pth')
+    trainer.save_checkpoint(ckpt_path)
+    torch.save(model.state_dict(), weights_path)
 
     # Perform testing
     trainer.test(model)
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1  # Do not allow the use of more than one GPUs
-
     parser = ArgumentParser()
 
-    parser.add_argument('--ckpt_path', type=str, default='./results/FCDenseNet57.ckpt')
-    parser.add_argument('--weights_path', type=str, default='./results/FCDenseNet57weights.pth')
+    # Add model arguments to parser
     parser = RightLaneModule.add_model_specific_args(parser)
 
     # Adds all the trainer options as default arguments (like max_epochs)

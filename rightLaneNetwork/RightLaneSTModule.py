@@ -9,40 +9,33 @@ import torch.nn as nn
 from albumentations import Compose, ToGray, Resize, Blur, NoOp
 from albumentations.pytorch import ToTensor
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
-from torch.optim import SGD
-from torch.optim.lr_scheduler import StepLR
+from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
-from dataManagement.myDatasets import ParallelDataset, RightLaneDataset
+from dataManagement.myDatasets import RightLaneDataset
 from dataManagement.myTransforms import testTransform
-from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier, grad_reverse
+from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
-def adentropy(output, lamda=1.0):
-    return lamda * torch.mean(torch.sum(output * (torch.log(output + 1e-5)), 1))
-
-
-class RightLaneMMEModule(pl.LightningModule):
-    def __init__(self, dataPath=None, width=160, height=120, gray=False,
-                 batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
+class RightLaneSTModule(pl.LightningModule):
+    def __init__(self, *, dataPath=None, width=160, height=120, gray=False,
+                 batchSize=32, lr=1e-3, decay=1e-4, lrRatio=1e3, **kwargs):
         super().__init__()
 
-        # Dataset parameters
         self.dataPath = dataPath
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = None, None, None, None
-        self.batchSize = batchSize
 
-        # Dataset transformation parameters
+        self.width, self.height = width, height
         self.grayscale = gray
-        self.height, self.width = height, width
-
-        # Training parameters
         self.criterion = nn.CrossEntropyLoss()
+        self.batchSize = batchSize
         self.lr = lr
         self.decay = decay
+        self.lrRatio = lrRatio
 
         # save hyperparameters
-        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay')
+        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay', 'lrRatio')
         print(f"The model has the following hyperparameters:")
         print(self.hparams)
 
@@ -66,6 +59,7 @@ class RightLaneMMEModule(pl.LightningModule):
         parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
         parser.add_argument('--decay', type=float, default=1e-4,
                             help='L2 weight decay value')
+        parser.add_argument('--lrRatio', type=float, default=1000)
         parser.add_argument('-b', '--batchSize', type=int, default=32, help='Input batch size')
 
         return parser
@@ -83,9 +77,9 @@ class RightLaneMMEModule(pl.LightningModule):
             ToTensor(),
         ])
 
-        if label is not None and len(label.shape) >= 2:
+        if label is not None:
             # Binarize label
-            label[label != 0] = 255
+            label[label > 0] = 255
 
             augmented = aug(image=img, mask=label)
             img = augmented['image']
@@ -109,46 +103,43 @@ class RightLaneMMEModule(pl.LightningModule):
 
     def train_dataloader(self):
         STSet = ConcatDataset([self.sourceSet, self.targetTrainSet])
-        parallelDataset = ParallelDataset(STSet, self.targetUnlabelledSet)
-        weights = [1 for _ in range(len(self.sourceSet))]
-        weights.extend([len(self.sourceSet) / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))])
-        sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet))
-        trainLoader = DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler,
-                                 shuffle=False, num_workers=4)
-        return trainLoader
+        source_weights = [1.0 / len(self.sourceSet) for _ in range(len(self.sourceSet))]
+        target_weights = [1.0 / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))]
+        weights = [*source_weights, *target_weights]
+        sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
+        return DataLoader(STSet, sampler=sampler, batch_size=self.batchSize, num_workers=8)
 
     def val_dataloader(self):
-        valLoader = DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=4)
-        return valLoader
+        return DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
-        optimizerF = SGD([
-            {'params': self.featureExtractor.parameters(), 'lr': self.lr},
-            {'params': self.classifier.parameters(), 'lr': self.lr}
-        ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        optimizerG = SGD([
-            {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
-            {'params': self.classifier.parameters(), 'lr': self.lr}
-        ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        lr_schedulerF = StepLR(optimizerF, step_size=2, gamma=0.9)
-        lr_schedulerG = StepLR(optimizerG, step_size=2, gamma=0.9)
-        return [optimizerF, optimizerG]  # , [lr_schedulerF, lr_schedulerG]
+        optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
+        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / self.lrRatio)
+        return [optimizer], [scheduler]
 
-    def training_step(self, batch, batch_idx, optimizer_idx=0):
-        x_labelled, x_unlabelled, labels, _ = batch
+    def training_step(self, batch, batch_idx):
+        x, y = batch
 
-        if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
-            outputs = self.featureExtractor(x_labelled)
-            outputs = self.classifier(outputs)
-            loss = self.criterion(outputs, labels)
-        if optimizer_idx == 1:  # We are unlabelled optimizer -> maximize entropy
-            outputs = self.featureExtractor(x_unlabelled)
-            outputs = grad_reverse(outputs)
-            outputs = self.classifier(outputs)
-            loss = adentropy(outputs, lamda=0.1)
+        # Hálón átpropagáljuk a bemenetet, költséget számítunk
+        outputs = self.forward(x)
+        loss = self.criterion(outputs, y)
+
+        # acc
+        _, labels_hat = torch.max(outputs, 1)
+        train_acc = accuracy(labels_hat, y)
+
+        progress_bar = {
+            'tr_acc': train_acc
+        }
+        logs = {
+            'train_loss': loss,
+            'train_acc': train_acc
+        }
 
         output = OrderedDict({
-            'loss': loss
+            'loss': loss,
+            'progress_bar': progress_bar,
+            'log': logs
         })
         return output
 
@@ -192,8 +183,7 @@ class RightLaneMMEModule(pl.LightningModule):
 
 
 def main(args):
-    model = RightLaneMMEModule(**vars(args))
-    model.load_state_dict(torch.load(args.pretrained_path))
+    model = RightLaneSTModule(**vars(args))
 
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
@@ -202,8 +192,8 @@ def main(args):
 
     # Save checkpoint and weights
     root_dir = args.default_root_dir if args.default_root_dir is not None else 'results'
-    ckpt_path = os.path.join(root_dir, 'MME.ckpt')
-    weights_path = os.path.join(root_dir, 'MME_weights.pth')
+    ckpt_path = os.path.join(root_dir, 'sandt.ckpt')
+    weights_path = os.path.join(root_dir, 'sandt_weights.pth')
     trainer.save_checkpoint(ckpt_path)
     torch.save(model.state_dict(), weights_path)
 
@@ -211,12 +201,8 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    # Need pretrained weights
-    parser.add_argument('--pretrained_path', type=str, default='./results/baseline_weights.pth',
-                        help='This script uses pretrained weights of FCDenseNet57. Define path to weights here.')
-
     # Add model arguments to parser
-    parser = RightLaneMMEModule.add_model_specific_args(parser)
+    parser = RightLaneSTModule.add_model_specific_args(parser)
 
     # Adds all the trainer options as default arguments (like max_epochs)
     parser = pl.Trainer.add_argparse_args(parser)

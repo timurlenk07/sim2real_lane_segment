@@ -42,8 +42,6 @@ def main(inputVideo, outputVideo, model, transform):
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
-
     parser = ArgumentParser()
 
     parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME', 'sandt'])

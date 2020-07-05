@@ -52,8 +52,6 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
 
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() <= 1
-
     parser = ArgumentParser()
 
     parser.add_argument('--showCount', type=int, default=4)

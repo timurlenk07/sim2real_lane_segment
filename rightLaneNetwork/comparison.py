@@ -15,7 +15,7 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
     img_paths = glob.glob(os.path.join(dataPath, '*.png'))
     img_paths = random.sample(img_paths, showCount)
 
-    models = [FCDenseNet57(2, 1), FCDenseNet57(2, 3), FCDenseNet57(2, 1)]
+    models = [FCDenseNet57(2, 1) for _ in range(3)]
 
     models[0].load_state_dict(torch.load(baselinePath))
     models[1].load_state_dict(torch.load(cycleganPath))

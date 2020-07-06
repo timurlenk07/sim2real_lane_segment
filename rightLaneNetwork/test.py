@@ -81,7 +81,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
 
     print(f"Accuracy on test set: {test_acc * 100.0 / (len(testDataset) + 1e-6):.2f}%")
     print(f"Dice score on test set: {test_dice / (len(testDataset) + 1e-6):.2f}")
-    print(f"IoU on test set: {test_iou / (len(testDataset) + 1e-6):.2f}")
+    print(f"IoU on test set: {test_iou * 100.0 / (len(testDataset) + 1e-6):.2f}")
 
 
 if __name__ == '__main__':

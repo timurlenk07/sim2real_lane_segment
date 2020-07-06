@@ -150,15 +150,12 @@ class RightLaneSTModule(pl.LightningModule):
         outputs = self.forward(x)
         loss = self.criterion(outputs, y)
 
-        # acc
         _, labels_hat = torch.max(outputs, 1)
-        correct = labels_hat.eq(y).sum()
-        total = torch.tensor(y.numel())
 
         output = OrderedDict({
             'val_loss': loss,
             'acc': accuracy(labels_hat, y),
-            'dice': dice_score(labels_hat, y),
+            'dice': dice_score(outputs, y),
             'iou': iou(labels_hat, y, remove_bg=True),
             'weight': y.shape[0],
         })
@@ -169,7 +166,7 @@ class RightLaneSTModule(pl.LightningModule):
         val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         weight_count = sum(x['weight'] for x in outputs)
         weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
-        weighted_dice = torch.stack([x['dice'] * 100.0 * x['weight'] for x in outputs]).sum()
+        weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
         weighted_iou = torch.stack([x['iou'] * 100.0 * x['weight'] for x in outputs]).sum()
         val_acc = weighted_acc / weight_count
         val_dice = weighted_dice / weight_count

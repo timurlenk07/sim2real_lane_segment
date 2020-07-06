@@ -11,8 +11,12 @@ from RightLaneModule import RightLaneModule
 from RightLaneSTModule import RightLaneSTModule
 from dataManagement.myTransforms import testTransform
 
+haveCuda = torch.cuda.is_available()
+
 
 def main(inputVideo, outputVideo, model, transform):
+    if haveCuda:
+        model.cuda()
     cap_in = cv2.VideoCapture(inputVideo)
 
     fourcc = cv2.VideoWriter_fourcc(*'FFV1')
@@ -21,24 +25,28 @@ def main(inputVideo, outputVideo, model, transform):
     isColor = not model.grayscale
     w_out = cv2.VideoWriter(outputVideo, fourcc, fps, framesize, isColor)
 
-    for _ in trange(int(cap_in.get(cv2.CAP_PROP_FRAME_COUNT))):
-        ret, frame = cap_in.read()
-        if not ret:
-            continue
+    try:
+        for _ in trange(int(cap_in.get(cv2.CAP_PROP_FRAME_COUNT))):
+            ret, frame = cap_in.read()
+            if not ret:
+                continue
 
-        frame_in, _ = transform(frame)
-        frame_in = frame_in.unsqueeze(0)
+            frame_in, _ = transform(frame)
+            frame_in = frame_in.unsqueeze(0)
 
-        _, pred = torch.max(model.forward(frame_in), 1)
-        pred = pred.byte().numpy().squeeze()
+            if haveCuda:
+                frame_in = frame_in.cuda()
 
-        frame_out = cv2.resize(frame, framesize, cv2.INTER_LANCZOS4)
-        frame_out[pred > 0.5] = (0, 0, 255)
+            _, pred = torch.max(model.forward(frame_in), 1)
+            pred = pred.cpu().byte().numpy().squeeze()
 
-        w_out.write(frame_out)
+            frame_out = cv2.resize(frame, framesize, cv2.INTER_LANCZOS4)
+            frame_out[pred > 0.5] = (0, 0, 255)
 
-    cap_in.release()
-    w_out.release()
+            w_out.write(frame_out)
+    finally:
+        cap_in.release()
+        w_out.release()
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 import cv2
 import numpy as np
 import torch
+from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
@@ -66,17 +67,21 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     # Perform qualitative evaluation
     testDataset = RightLaneDataset(testDataPath, transform=transform)
 
-    correct = 0
-    total = 0
+    test_acc, test_dice, test_iou = 0.0, 0.0, 0.0
     for i in range(len(testDataset)):
         img, label = testDataset[i]
-        img = img.unsqueeze(0)
-        _, pred = torch.max(model.forward(img), 1)
-        pred = pred.squeeze()
-        correct += pred.eq(label).sum().item()
-        total += label.numel()
+        img, label = img.unsqueeze(0), label.unsqueeze(0)
 
-    print(f"Accuracy on test set: {correct * 100.0 / (total + 1e-6):.2f}%")
+        probas = model.forward(img)
+        _, label_hat = torch.max(probas, 1)
+
+        test_acc += accuracy(label_hat, label)
+        test_dice += dice_score(probas, label)
+        test_iou += iou(label_hat, label, remove_bg=True)
+
+    print(f"Accuracy on test set: {test_acc * 100.0 / (len(testDataset) + 1e-6):.2f}%")
+    print(f"Dice score on test set: {test_dice / (len(testDataset) + 1e-6):.2f}")
+    print(f"IoU on test set: {test_iou / (len(testDataset) + 1e-6):.2f}")
 
 
 if __name__ == '__main__':

@@ -6,10 +6,10 @@ from collections import OrderedDict
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from albumentations import Compose, ToGray, Resize, Blur, NoOp
-from albumentations.pytorch import ToTensor
+from albumentations import Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop
+from albumentations.pytorch import ToTensorV2
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
@@ -20,7 +20,7 @@ from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 class RightLaneModule(pl.LightningModule):
     def __init__(self, *, dataPath=None, width=160, height=120, gray=False,
-                 batchSize=32, lr=1e-3, decay=1e-4, lrRatio=1e3, **kwargs):
+                 augment=False, batchSize=32, lr=1e-3, decay=1e-4, lrRatio=1e3, **kwargs):
         super().__init__()
 
         self.dataPath = dataPath
@@ -29,13 +29,14 @@ class RightLaneModule(pl.LightningModule):
         self.width, self.height = width, height
         self.grayscale = gray
         self.criterion = nn.CrossEntropyLoss()
+        self.augment = augment
         self.batchSize = batchSize
         self.lr = lr
         self.decay = decay
         self.lrRatio = lrRatio
 
         # save hyperparameters
-        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay', 'lrRatio')
+        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize', 'lr', 'decay', 'lrRatio')
         print(f"The model has the following hyperparameters:")
         print(self.hparams)
 
@@ -56,6 +57,7 @@ class RightLaneModule(pl.LightningModule):
         parser.add_argument('-hg', '--height', type=int, default=120, help='Resized input image height')
 
         # Training hyperparams
+        parser.add_argument('--augment', action='store_true', help='Convert input image to grayscale')
         parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
         parser.add_argument('--decay', type=float, default=1e-4,
                             help='L2 weight decay value')
@@ -70,16 +72,22 @@ class RightLaneModule(pl.LightningModule):
         return x
 
     def transform(self, img, label=None):
+        augmentations = Compose([
+            HueSaturationValue(always_apply=True),
+            MotionBlur(p=0.5),
+            RandomSizedCrop(min_max_height=(self.height // 2, self.height * 4), height=self.height, width=self.width,
+                            w2h_ratio=self.width / self.height, always_apply=True)
+        ])
         aug = Compose([
-            Blur(p=0.5),
-            Resize(height=self.height, width=self.width, always_apply=True),
+            augmentations if self.augment else Resize(height=self.height, width=self.width, always_apply=True),
             ToGray(always_apply=True) if self.grayscale else NoOp(always_apply=True),
-            ToTensor(),
+            Normalize(always_apply=True),
+            ToTensorV2(),
         ])
 
         if label is not None:
             # Binarize label
-            label[label > 0] = 255
+            label[label != 0] = 1
 
             augmented = aug(image=img, mask=label)
             img = augmented['image']
@@ -107,7 +115,7 @@ class RightLaneModule(pl.LightningModule):
         return DataLoader(self.testSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
-        optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=self.decay)
+        optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=self.decay)
         scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / self.lrRatio)
         return [optimizer], [scheduler]
 
@@ -120,7 +128,7 @@ class RightLaneModule(pl.LightningModule):
 
         # acc
         _, labels_hat = torch.max(outputs, 1)
-        train_acc = accuracy(labels_hat, y)
+        train_acc = accuracy(labels_hat, y) * 100
 
         progress_bar = {
             'tr_acc': train_acc

@@ -5,12 +5,13 @@ from collections import OrderedDict
 
 import pytorch_lightning as pl
 import torch
-import torch.nn as nn
 from albumentations import (
     Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
 )
 from albumentations.pytorch import ToTensorV2
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
+from torch.nn.functional import cross_entropy
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
@@ -30,7 +31,6 @@ class RightLaneSTModule(pl.LightningModule):
 
         self.width, self.height = width, height
         self.grayscale = gray
-        self.criterion = nn.CrossEntropyLoss()
         self.augment = augment
         self.batchSize = batchSize
         self.lr = lr
@@ -131,7 +131,7 @@ class RightLaneSTModule(pl.LightningModule):
 
         # Hálón átpropagáljuk a bemenetet, költséget számítunk
         outputs = self.forward(x)
-        loss = self.criterion(outputs, y)
+        loss = cross_entropy(outputs, y)
 
         # acc
         _, labels_hat = torch.max(outputs, 1)
@@ -157,7 +157,7 @@ class RightLaneSTModule(pl.LightningModule):
 
         # Hálón átpropagáljuk a bemenetet, költséget számítunk
         outputs = self.forward(x)
-        loss = self.criterion(outputs, y)
+        loss = cross_entropy(outputs, y)
 
         _, labels_hat = torch.max(outputs, 1)
 
@@ -191,6 +191,9 @@ class RightLaneSTModule(pl.LightningModule):
 def main(args):
     model = RightLaneSTModule(**vars(args))
 
+    if args.default_root_dir is None:
+        args.default_root_dir = 'results'
+
     if args.comet:
         comet_logger = pl.loggers.CometLogger(api_key=os.environ.get('COMET_API_KEY'),
                                               workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
@@ -199,17 +202,32 @@ def main(args):
                                               )
         args.logger = comet_logger
 
+    # Save best model
+    args.checkpoint_callback = ModelCheckpoint(
+        filepath=os.path.join(args.default_root_dir, 'sandt.ckpt'),
+        save_top_k=1,
+        verbose=False,
+        monitor='val_loss',
+        mode='min',
+        prefix=''
+    )
+
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model)
 
+    # Reload best model
+    model.load_from_checkpoint(args.checkpoint_callback.kth_best_model)
+
     # Save checkpoint and weights
-    root_dir = args.default_root_dir if args.default_root_dir is not None else 'results'
-    ckpt_path = os.path.join(root_dir, 'sandt.ckpt')
-    weights_path = os.path.join(root_dir, 'sandt_weights.pth')
+    ckpt_path = os.path.join(args.default_root_dir, 'sandt.ckpt')
+    weights_path = os.path.join(args.default_root_dir, 'sandt_weights.pth')
     trainer.save_checkpoint(ckpt_path)
     torch.save(model.state_dict(), weights_path)
+    if args.comet:
+        comet_logger.experiment.log_model('sandt_ckpt', ckpt_path)
+        comet_logger.experiment.log_model('sandt_weights', weights_path)
 
 
 if __name__ == '__main__':

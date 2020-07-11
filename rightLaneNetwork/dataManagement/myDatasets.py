@@ -47,6 +47,17 @@ class RightLaneDataset(Dataset):
 
         return x, y
 
+    def __setitem__(self, index, value):
+        filename = f'{index:06d}.png'
+        if self.haveLabels:
+            img, label = value
+        else:
+            img = value
+
+        cv2.imwrite(os.path.join(self._input_dir, filename), img)
+        if self.haveLabels:
+            cv2.imwrite(os.path.join(self._target_dir, filename), label)
+
 
 class ParallelDataset(Dataset):
     def __init__(self, dsA, dsB):

@@ -6,7 +6,8 @@ from collections import OrderedDict
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from albumentations import Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop
+from albumentations import Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, \
+    GaussNoise, OneOf
 from albumentations.pytorch import ToTensorV2
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.optim import AdamW
@@ -74,9 +75,9 @@ class RightLaneModule(pl.LightningModule):
     def transform(self, img, label=None):
         augmentations = Compose([
             HueSaturationValue(always_apply=True),
-            MotionBlur(p=0.5),
             RandomSizedCrop(min_max_height=(self.height // 2, self.height * 4), height=self.height, width=self.width,
-                            w2h_ratio=self.width / self.height, always_apply=True)
+                            w2h_ratio=self.width / self.height, always_apply=True),
+            OneOf([MotionBlur(p=0.5), GaussNoise(p=0.5)], p=1),
         ])
         aug = Compose([
             augmentations if self.augment else Resize(height=self.height, width=self.width, always_apply=True),
@@ -116,7 +117,7 @@ class RightLaneModule(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=self.decay)
-        scheduler = CosineAnnealingLR(optimizer, 20, eta_min=self.lr / self.lrRatio)
+        scheduler = CosineAnnealingLR(optimizer, 25, eta_min=self.lr / self.lrRatio)
         return [optimizer], [scheduler]
 
     def training_step(self, batch, batch_idx):

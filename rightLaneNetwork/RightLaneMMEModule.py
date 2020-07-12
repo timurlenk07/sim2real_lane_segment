@@ -5,10 +5,13 @@ from collections import OrderedDict
 
 import pytorch_lightning as pl
 import torch
-import torch.nn as nn
-from albumentations import Compose, ToGray, Resize, Blur, NoOp
-from albumentations.pytorch import ToTensor
+from albumentations import (
+    Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
+)
+from albumentations.pytorch import ToTensorV2
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
+from torch.nn.functional import cross_entropy
 from torch.optim import SGD
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
@@ -24,7 +27,7 @@ def adentropy(output, lamda=1.0):
 
 class RightLaneMMEModule(pl.LightningModule):
     def __init__(self, dataPath=None, width=160, height=120, gray=False,
-                 batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
+                 augment=False, batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
         super().__init__()
 
         # Dataset parameters
@@ -34,15 +37,15 @@ class RightLaneMMEModule(pl.LightningModule):
 
         # Dataset transformation parameters
         self.grayscale = gray
+        self.augment = augment
         self.height, self.width = height, width
 
         # Training parameters
-        self.criterion = nn.CrossEntropyLoss()
         self.lr = lr
         self.decay = decay
 
         # save hyperparameters
-        self.save_hyperparameters('width', 'height', 'gray', 'batchSize', 'lr', 'decay')
+        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize', 'lr', 'decay')
         print(f"The model has the following hyperparameters:")
         print(self.hparams)
 
@@ -55,7 +58,7 @@ class RightLaneMMEModule(pl.LightningModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
         # Data location
-        parser.add_argument('--dataPath', type=str, default='./data')
+        parser.add_argument('--dataPath', type=str)
 
         # parametrize the network
         parser.add_argument('--gray', action='store_true', help='Convert input image to grayscale')
@@ -63,6 +66,7 @@ class RightLaneMMEModule(pl.LightningModule):
         parser.add_argument('-hg', '--height', type=int, default=120, help='Resized input image height')
 
         # Training hyperparams
+        parser.add_argument('--augment', action='store_true', help='Convert input image to grayscale')
         parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
         parser.add_argument('--decay', type=float, default=1e-4,
                             help='L2 weight decay value')
@@ -76,16 +80,22 @@ class RightLaneMMEModule(pl.LightningModule):
         return x
 
     def transform(self, img, label=None):
+        augmentations = Compose([
+            HueSaturationValue(always_apply=True),
+            RandomSizedCrop(min_max_height=(self.height // 2, self.height * 4), height=self.height, width=self.width,
+                            w2h_ratio=self.width / self.height, always_apply=True),
+            OneOf([MotionBlur(p=0.5), GaussNoise(p=0.5)], p=1),
+        ])
         aug = Compose([
-            Blur(p=0.5),
-            Resize(height=self.height, width=self.width, always_apply=True),
+            augmentations if self.augment else Resize(height=self.height, width=self.width, always_apply=True),
             ToGray(always_apply=True) if self.grayscale else NoOp(always_apply=True),
-            ToTensor(),
+            Normalize(always_apply=True),
+            ToTensorV2(),
         ])
 
         if label is not None and len(label.shape) >= 2:
             # Binarize label
-            label[label != 0] = 255
+            label[label != 0] = 1
 
             augmented = aug(image=img, mask=label)
             img = augmented['image']
@@ -116,7 +126,7 @@ class RightLaneMMEModule(pl.LightningModule):
         target_weights = [1.0 / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))]
         weights = [*source_weights, *target_weights]
 
-        sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet))
+        sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
         return DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler, shuffle=False, num_workers=8)
 
     def val_dataloader(self):
@@ -131,9 +141,9 @@ class RightLaneMMEModule(pl.LightningModule):
             {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
             {'params': self.classifier.parameters(), 'lr': self.lr}
         ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        lr_schedulerF = StepLR(optimizerF, step_size=2, gamma=0.9)
-        lr_schedulerG = StepLR(optimizerG, step_size=2, gamma=0.9)
-        return [optimizerF, optimizerG]  # , [lr_schedulerF, lr_schedulerG]
+        lr_schedulerF = StepLR(optimizerF, step_size=1, gamma=0.98)
+        lr_schedulerG = StepLR(optimizerG, step_size=1, gamma=0.98)
+        return [optimizerF, optimizerG], [lr_schedulerF, lr_schedulerG]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
         x_labelled, x_unlabelled, labels, _ = batch
@@ -141,7 +151,7 @@ class RightLaneMMEModule(pl.LightningModule):
         if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
             outputs = self.featureExtractor(x_labelled)
             outputs = self.classifier(outputs)
-            loss = self.criterion(outputs, labels)
+            loss = cross_entropy(outputs, labels)
         if optimizer_idx == 1:  # We are unlabelled optimizer -> maximize entropy
             outputs = self.featureExtractor(x_unlabelled)
             outputs = grad_reverse(outputs)
@@ -158,7 +168,7 @@ class RightLaneMMEModule(pl.LightningModule):
 
         # Hálón átpropagáljuk a bemenetet, költséget számítunk
         outputs = self.forward(x)
-        loss = self.criterion(outputs, y)
+        loss = cross_entropy(outputs, y)
 
         _, labels_hat = torch.max(outputs, 1)
 
@@ -175,12 +185,12 @@ class RightLaneMMEModule(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         weight_count = sum(x['weight'] for x in outputs)
-        weighted_acc = torch.stack([x['acc'] * 100.0 * x['weight'] for x in outputs]).sum()
+        weighted_acc = torch.stack([x['acc'] * x['weight'] for x in outputs]).sum()
         weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
-        weighted_iou = torch.stack([x['iou'] * 100.0 * x['weight'] for x in outputs]).sum()
-        val_acc = weighted_acc / weight_count
+        weighted_iou = torch.stack([x['iou'] * x['weight'] for x in outputs]).sum()
+        val_acc = weighted_acc / weight_count * 100.0
         val_dice = weighted_dice / weight_count
-        val_iou = weighted_iou / weight_count
+        val_iou = weighted_iou / weight_count * 100.0
 
         tensorboard_logs = {'val_loss': val_loss,
                             'val_acc': val_acc,
@@ -193,25 +203,43 @@ def main(args):
     model = RightLaneMMEModule(**vars(args))
     model.load_state_dict(torch.load(args.pretrained_path))
 
+    if args.default_root_dir is None:
+        args.default_root_dir = 'results'
+
     if args.comet:
         comet_logger = pl.loggers.CometLogger(api_key=os.environ.get('COMET_API_KEY'),
                                               workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
                                               project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
-                                              experiment_name='baseline'  # Optional
+                                              experiment_name='MME'  # Optional
                                               )
         args.logger = comet_logger
+
+    # Save best model
+    args.checkpoint_callback = ModelCheckpoint(
+        filepath=os.path.join(args.default_root_dir, 'MME.ckpt'),
+        save_top_k=1,
+        verbose=False,
+        monitor='val_loss',
+        mode='min',
+        prefix=''
+    )
 
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model)
 
+    # Reload best model
+    model.load_from_checkpoint(args.checkpoint_callback.kth_best_model)
+
     # Save checkpoint and weights
-    root_dir = args.default_root_dir if args.default_root_dir is not None else 'results'
-    ckpt_path = os.path.join(root_dir, 'MME.ckpt')
-    weights_path = os.path.join(root_dir, 'MME_weights.pth')
+    ckpt_path = os.path.join(args.default_root_dir, 'MME.ckpt')
+    weights_path = os.path.join(args.default_root_dir, 'MME_weights.pth')
     trainer.save_checkpoint(ckpt_path)
     torch.save(model.state_dict(), weights_path)
+    if args.comet:
+        comet_logger.experiment.log_model('MME_ckpt', ckpt_path)
+        comet_logger.experiment.log_model('MME_weights', weights_path)
 
 
 if __name__ == '__main__':
@@ -220,7 +248,7 @@ if __name__ == '__main__':
     parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
 
     # Need pretrained weights
-    parser.add_argument('--pretrained_path', type=str, default='./results/baseline_weights.pth',
+    parser.add_argument('--pretrained_path', type=str,
                         help='This script uses pretrained weights of FCDenseNet57. Define path to weights here.')
 
     # Add model arguments to parser

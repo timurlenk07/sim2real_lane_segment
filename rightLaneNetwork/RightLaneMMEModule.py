@@ -13,7 +13,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
 from torch.optim import SGD
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
 from dataManagement.myDatasets import ParallelDataset, RightLaneDataset
@@ -81,7 +81,7 @@ class RightLaneMMEModule(pl.LightningModule):
 
     def transform(self, img, label=None):
         augmentations = Compose([
-            HueSaturationValue(always_apply=True),
+            HueSaturationValue(p=0.5),
             RandomSizedCrop(min_max_height=(self.height // 2, self.height * 4), height=self.height, width=self.width,
                             w2h_ratio=self.width / self.height, always_apply=True),
             OneOf([MotionBlur(p=0.5), GaussNoise(p=0.5)], p=1),
@@ -113,7 +113,7 @@ class RightLaneMMEModule(pl.LightningModule):
         self.targetTrainSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'),
                                                self.transform, haveLabels=True)
         self.targetUnlabelledSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'unlabelled'),
-                                                    self.transform, haveLabels=False)
+                                                    testTransform2, haveLabels=False)
         self.targetTestSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'), testTransform2,
                                               haveLabels=True)
 
@@ -127,36 +127,33 @@ class RightLaneMMEModule(pl.LightningModule):
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler, shuffle=False, num_workers=8)
+        return DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler, num_workers=8)
 
     def val_dataloader(self):
         return DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
-        optimizerF = SGD([
-            {'params': self.featureExtractor.parameters(), 'lr': self.lr},
-            {'params': self.classifier.parameters(), 'lr': self.lr}
-        ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
+        optimizerF = SGD(self.parameters(), lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
         optimizerG = SGD([
             {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
             {'params': self.classifier.parameters(), 'lr': self.lr}
         ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        lr_schedulerF = StepLR(optimizerF, step_size=1, gamma=0.98)
-        lr_schedulerG = StepLR(optimizerG, step_size=1, gamma=0.98)
-        return [optimizerF, optimizerG], [lr_schedulerF, lr_schedulerG]
+        lr_schedulerF = CosineAnnealingWarmRestarts(optimizerF, T_0=20, T_mult=2, eta_min=self.lr * 1e-4)
+        lr_schedulerG = CosineAnnealingWarmRestarts(optimizerG, T_0=20, T_mult=2, eta_min=self.lr * 1e-5)
+        return [optimizerG, optimizerF], [lr_schedulerG, lr_schedulerF]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
         x_labelled, x_unlabelled, labels, _ = batch
 
-        if optimizer_idx == 0:  # We are labelled optimizer -> minimize entropy
-            outputs = self.featureExtractor(x_labelled)
-            outputs = self.classifier(outputs)
-            loss = cross_entropy(outputs, labels)
-        if optimizer_idx == 1:  # We are unlabelled optimizer -> maximize entropy
+        if optimizer_idx == 0:  # We are unlabelled optimizer -> maximize entropy
             outputs = self.featureExtractor(x_unlabelled)
             outputs = grad_reverse(outputs)
             outputs = self.classifier(outputs)
             loss = adentropy(outputs, lamda=0.1)
+        if optimizer_idx == 1:  # We are labelled optimizer -> minimize entropy
+            outputs = self.featureExtractor(x_labelled)
+            outputs = self.classifier(outputs)
+            loss = cross_entropy(outputs, labels)
 
         output = OrderedDict({
             'loss': loss
@@ -192,14 +189,22 @@ class RightLaneMMEModule(pl.LightningModule):
         val_dice = weighted_dice / weight_count
         val_iou = weighted_iou / weight_count * 100.0
 
-        tensorboard_logs = {'val_loss': val_loss,
-                            'val_acc': val_acc,
-                            'val_dice': val_dice,
-                            'val_iou': val_iou}
-        return {'progress_bar': tensorboard_logs, 'log': tensorboard_logs}
+        logs = {'val_loss': val_loss,
+                'val_acc': val_acc,
+                'val_dice': val_dice,
+                'val_iou': val_iou,
+                'step': self.current_epoch}
+        return {'progress_bar': logs, 'log': logs}
 
 
 def main(args):
+    if args.reproducible:
+        import numpy as np
+        np.random.seed(42)
+        torch.manual_seed(42)
+        args.deterministic = True
+        args.benchmark = True
+
     model = RightLaneMMEModule(**vars(args))
     model.load_state_dict(torch.load(args.pretrained_path))
 
@@ -219,9 +224,9 @@ def main(args):
         filepath=os.path.join(args.default_root_dir, 'MME.ckpt'),
         save_top_k=1,
         verbose=False,
-        monitor='val_loss',
-        mode='min',
-        prefix=''
+        monitor='val_iou',
+        mode='max',
+        prefix=str(os.getpid()),
     )
 
     # Parse all trainer options available from the command line
@@ -246,6 +251,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
+    parser.add_argument('--reproducible', action='store_true', help="Set seed to 42 and deterministic to True.")
 
     # Need pretrained weights
     parser.add_argument('--pretrained_path', type=str,

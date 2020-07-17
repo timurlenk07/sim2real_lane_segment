@@ -181,14 +181,22 @@ class RightLaneSTModule(pl.LightningModule):
         val_dice = weighted_dice / weight_count
         val_iou = weighted_iou / weight_count * 100.0
 
-        tensorboard_logs = {'val_loss': val_loss,
-                            'val_acc': val_acc,
-                            'val_dice': val_dice,
-                            'val_iou': val_iou}
-        return {'progress_bar': tensorboard_logs, 'log': tensorboard_logs}
+        logs = {'val_loss': val_loss,
+                'val_acc': val_acc,
+                'val_dice': val_dice,
+                'val_iou': val_iou,
+                'step': self.current_epoch}
+        return {'progress_bar': logs, 'log': logs}
 
 
 def main(args):
+    if args.reproducible:
+        import numpy as np
+        np.random.seed(42)
+        torch.manual_seed(42)
+        args.deterministic = True
+        args.benchmark = True
+
     model = RightLaneSTModule(**vars(args))
 
     if args.default_root_dir is None:
@@ -207,9 +215,9 @@ def main(args):
         filepath=os.path.join(args.default_root_dir, 'sandt.ckpt'),
         save_top_k=1,
         verbose=False,
-        monitor='val_loss',
-        mode='min',
-        prefix=''
+        monitor='val_iou',
+        mode='max',
+        prefix=str(os.getpid())
     )
 
     # Parse all trainer options available from the command line
@@ -234,6 +242,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
+    parser.add_argument('--reproducible', action='store_true', help="Set seed to 42 and deterministic to True.")
 
     # Add model arguments to parser
     parser = RightLaneSTModule.add_model_specific_args(parser)

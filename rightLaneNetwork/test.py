@@ -65,7 +65,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     cv2.imwrite('results/samplePredictions.png', finalResult)
 
     # Perform qualitative evaluation
-    testDataset = RightLaneDataset(testDataPath, transform=transform)
+    testDataset = RightLaneDataset(testDataPath, transform=transform, haveLabels=True)
 
     test_acc, test_dice, test_iou = 0.0, 0.0, 0.0
     for i in range(len(testDataset)):
@@ -80,7 +80,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         test_iou += iou(label_hat, label, remove_bg=True)
 
     print(f"Accuracy on test set: {test_acc * 100.0 / (len(testDataset) + 1e-6):.2f}%")
-    print(f"Dice score on test set: {test_dice / (len(testDataset) + 1e-6):.2f}")
+    print(f"Dice score on test set: {test_dice / (len(testDataset) + 1e-6):.3f}")
     print(f"IoU on test set: {test_iou * 100.0 / (len(testDataset) + 1e-6):.2f}")
 
 

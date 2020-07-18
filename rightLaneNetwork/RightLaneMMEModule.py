@@ -1,19 +1,26 @@
 import functools
+import math
 import os
 from argparse import ArgumentParser
 from collections import OrderedDict
 
 import pytorch_lightning as pl
+import ray
 import torch
 from albumentations import (
     Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
 )
 from albumentations.pytorch import ToTensorV2
-from pytorch_lightning.callbacks import ModelCheckpoint
+from hyperopt import hp
+from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
+from ray import tune
+from ray.tune import CLIReporter
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune.suggest.hyperopt import HyperOptSearch
 from torch.nn.functional import cross_entropy
-from torch.optim import SGD
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim import SGD, AdamW
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, StepLR, CosineAnnealingLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
 from dataManagement.myDatasets import ParallelDataset, RightLaneDataset
@@ -26,28 +33,40 @@ def adentropy(output, lamda=1.0):
 
 
 class RightLaneMMEModule(pl.LightningModule):
-    def __init__(self, dataPath=None, width=160, height=120, gray=False,
-                 augment=False, batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
+    def __init__(self, config: dict = dict(), *,
+                 dataPath=None, width=160, height=120, gray=False, augment=False, batchSize=32,
+                 optim1='SGD', optim2='SGD', momentum1=0.9, momentum2=0.9, sched1='StepLR', sched2='StepLR',
+                 lr=1e-3, lr_ratio1=1, lr_ratio2=1e-1, lr_sched_ratio=1e-4, decay=1e-4, **kwargs):
         super().__init__()
 
         # Dataset parameters
         self.dataPath = dataPath
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = None, None, None, None
-        self.batchSize = batchSize
 
         # Dataset transformation parameters
-        self.grayscale = gray
-        self.augment = augment
+        self.grayscale = gray if 'grayscale' not in config else config['grayscale']
+        self.augment = augment if 'augment' not in config else config['augment']
         self.height, self.width = height, width
 
         # Training parameters
-        self.lr = lr
-        self.decay = decay
+        self.batchSize = batchSize if 'batchSize' not in config else config['batchSize']
+        self.optim1 = optim1 if 'optim1' not in config else config['optim1']
+        self.optim2 = optim2 if 'optim2' not in config else config['optim2']
+        self.momentum1 = momentum1 if 'momentum1' not in config else config['momentum1']
+        self.momentum2 = momentum2 if 'momentum2' not in config else config['momentum2']
+        self.sched1 = sched1 if 'sched1' not in config else config['sched1']
+        self.sched2 = sched2 if 'sched2' not in config else config['sched2']
+        self.lr = lr if 'lr' not in config else config['lr']
+        self.lr_ratio1 = lr_ratio1 if 'lr_ratio1' not in config else config['lr_ratio1']
+        self.lr_ratio2 = lr_ratio2 if 'lr_ratio2' not in config else config['lr_ratio2']
+        self.lr_sched_ratio = lr_sched_ratio if 'lr_sched_ratio' not in config else config['lr_sched_ratio']
+        self.decay = decay if 'decay' not in config else config['decay']
 
-        # save hyperparameters
-        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize', 'lr', 'decay')
-        print(f"The model has the following hyperparameters:")
-        print(self.hparams)
+        # Save hyperparameters
+        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize',
+                                  'optim1', 'optim2', 'momentum1', 'momentum2', 'sched1', 'sched2',
+                                  'lr', 'lr_ratio1', 'lr_ratio2',
+                                  'lr_sched_ratio', 'decay')
 
         # Network parts
         self.featureExtractor = FCDenseNet57Base()
@@ -133,13 +152,39 @@ class RightLaneMMEModule(pl.LightningModule):
         return DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
-        optimizerF = SGD(self.parameters(), lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        optimizerG = SGD([
-            {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
-            {'params': self.classifier.parameters(), 'lr': self.lr}
-        ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        lr_schedulerF = CosineAnnealingWarmRestarts(optimizerF, T_0=20, T_mult=2, eta_min=self.lr * 1e-4)
-        lr_schedulerG = CosineAnnealingWarmRestarts(optimizerG, T_0=20, T_mult=2, eta_min=self.lr * 1e-5)
+        if self.optim1 == 'SGD':
+            optimizerF = SGD(self.parameters(), lr=self.lr, weight_decay=self.decay, momentum=self.momentum1,
+                             nesterov=True)
+        elif self.optim1 == 'Adam':
+            optimizerF = AdamW(self.parameters(), lr=self.lr, weight_decay=self.decay)
+
+        if self.optim2 == 'SGD':
+            optimizerG = SGD([
+                {'params': self.featureExtractor.parameters(), 'lr': self.lr * self.lr_ratio1},
+                {'params': self.classifier.parameters(), 'lr': self.lr * self.lr_ratio2}
+            ], lr=self.lr, weight_decay=self.decay, momentum=self.momentum2, nesterov=True)
+        elif self.optim2 == 'Adam':
+            optimizerG = AdamW(self.parameters(), lr=self.lr, weight_decay=self.decay)
+
+        if self.sched1 == 'StepLR':
+            lr_schedulerF = StepLR(optimizerF, step_size=1, gamma=self.lr_sched_ratio ** (1.0 / 140))  # max_epochs root
+        elif self.sched1 == 'CosineAnnealingWarmRestarts':
+            lr_schedulerF = CosineAnnealingWarmRestarts(optimizerF, T_0=20, T_mult=2,
+                                                        eta_min=self.lr * self.lr_sched_ratio)
+        elif self.sched1 == 'CosineAnnealingLR':
+            lr_schedulerF = CosineAnnealingLR(optimizerF, T_max=20, eta_min=self.lr * self.lr_sched_ratio)
+
+        if self.sched2 == 'StepLR':
+            lr_schedulerG = StepLR(optimizerG, step_size=1, gamma=self.lr_sched_ratio ** (1.0 / 140))  # max_epochs root
+        elif self.sched2 == 'CosineAnnealingWarmRestarts':
+            lr_schedulerG = CosineAnnealingWarmRestarts(optimizerG, T_0=20, T_mult=2,
+                                                        eta_min=self.lr * min(self.lr_ratio1,
+                                                                              self.lr_ratio2) * self.lr_sched_ratio)
+        elif self.sched2 == 'CosineAnnealingLR':
+            lr_schedulerG = CosineAnnealingLR(optimizerG, T_max=20,
+                                              eta_min=self.lr * min(self.lr_ratio1,
+                                                                    self.lr_ratio2) * self.lr_sched_ratio)
+
         return [optimizerG, optimizerF], [lr_schedulerG, lr_schedulerF]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
@@ -180,11 +225,12 @@ class RightLaneMMEModule(pl.LightningModule):
         return output
 
     def validation_epoch_end(self, outputs):
-        val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         weight_count = sum(x['weight'] for x in outputs)
+        weighted_loss = torch.stack([x['val_loss'] * x['weight'] for x in outputs]).sum()
         weighted_acc = torch.stack([x['acc'] * x['weight'] for x in outputs]).sum()
         weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
         weighted_iou = torch.stack([x['iou'] * x['weight'] for x in outputs]).sum()
+        val_loss = weighted_loss / weight_count
         val_acc = weighted_acc / weight_count * 100.0
         val_dice = weighted_dice / weight_count
         val_iou = weighted_iou / weight_count * 100.0
@@ -197,6 +243,25 @@ class RightLaneMMEModule(pl.LightningModule):
         return {'progress_bar': logs, 'log': logs}
 
 
+class TuneReportCallback(Callback):
+    def on_validation_end(self, trainer, pl_module):
+        # print(f"val_loss is {trainer.callback_metrics['val_loss'].item()}")
+        tune.report(
+            val_loss=trainer.callback_metrics['val_loss'].item(),
+            val_acc=trainer.callback_metrics["val_acc"].item(),
+            val_dice=trainer.callback_metrics["val_dice"].item(),
+            val_iou=trainer.callback_metrics["val_iou"].item(),
+            epoch=trainer.callback_metrics['step'].item(),
+        )
+
+
+def trainMME(config, trainer, args):
+    model = RightLaneMMEModule(config, **vars(args))
+    model.load_state_dict(torch.load(args.pretrained_path))
+
+    trainer.fit(model)
+
+
 def main(args):
     if args.reproducible:
         import numpy as np
@@ -205,46 +270,74 @@ def main(args):
         args.deterministic = True
         args.benchmark = True
 
-    model = RightLaneMMEModule(**vars(args))
-    model.load_state_dict(torch.load(args.pretrained_path))
-
     if args.default_root_dir is None:
         args.default_root_dir = 'results'
 
     if args.comet:
-        comet_logger = pl.loggers.CometLogger(api_key=os.environ.get('COMET_API_KEY'),
-                                              workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
-                                              project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
-                                              experiment_name='MME'  # Optional
-                                              )
+        comet_logger = pl.loggers.CometLogger(
+            api_key=os.environ.get('COMET_API_KEY'),
+            experiment_name='MME_hyperopt',  # Optional
+        )
         args.logger = comet_logger
 
-    # Save best model
-    args.checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(args.default_root_dir, 'MME.ckpt'),
-        save_top_k=1,
-        verbose=False,
-        monitor='val_iou',
-        mode='max',
-        prefix=str(os.getpid()),
-    )
+    args.dataPath = os.path.join(os.getcwd(), args.dataPath)
+    args.pretrained_path = os.path.join(os.getcwd(), args.pretrained_path)
+    args.callbacks = [TuneReportCallback()]
 
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
-    trainer.fit(model)
+    def base10_to_basee(n):
+        return math.log(10 ** n)
 
-    # Reload best model
-    model.load_from_checkpoint(args.checkpoint_callback.kth_best_model)
+    space = {
+        'augment': hp.choice('augment', [True, False]),
+        'optim1': hp.choice('optim1', ['SGD', 'Adam']),
+        'optim2': hp.choice('optim2', ['SGD', 'Adam']),
+        'momentum1': hp.choice('momentum1', [0.8, 0.9, 0.95, 0.99]),
+        'momentum2': hp.choice('momentum2', [0.8, 0.9, 0.95, 0.99]),
+        'sched1': hp.choice('sched1', ['StepLR', 'CosineAnnealingWarmRestarts', 'CosineAnnealingLR']),
+        'sched2': hp.choice('sched2', ['StepLR', 'CosineAnnealingWarmRestarts', 'CosineAnnealingLR']),
+        'lr': hp.loguniform('lr', base10_to_basee(-4), base10_to_basee(-1)),
+        'lr_ratio1': hp.loguniform('lr_ratio1', base10_to_basee(-3), base10_to_basee(0)),
+        'lr_ratio2': hp.loguniform('lr_ratio2', base10_to_basee(-3), base10_to_basee(0)),
+        'lr_sched_ratio': hp.loguniform('lr_sched_ratio', base10_to_basee(-5), base10_to_basee(-2)),
+        'decay': hp.loguniform('decay', base10_to_basee(-6), base10_to_basee(-3)),
+    }
 
-    # Save checkpoint and weights
-    ckpt_path = os.path.join(args.default_root_dir, 'MME.ckpt')
-    weights_path = os.path.join(args.default_root_dir, 'MME_weights.pth')
-    trainer.save_checkpoint(ckpt_path)
-    torch.save(model.state_dict(), weights_path)
-    if args.comet:
-        comet_logger.experiment.log_model('MME_ckpt', ckpt_path)
-        comet_logger.experiment.log_model('MME_weights', weights_path)
+    suggester = HyperOptSearch(
+        space=space,
+        metric='val_iou',
+        mode='max',
+        n_initial_points=2,
+    )
+
+    scheduler = ASHAScheduler(
+        metric="val_iou",
+        mode="max",
+        max_t=args.max_epochs,
+        grace_period=min(20, args.max_epochs),
+        reduction_factor=2,
+    )
+
+    reporter = CLIReporter(
+        metric_columns=["val_loss", "val_acc", "val_dice", 'val_iou', 'epoch']
+    )
+
+    ray.init(webui_host='127.0.0.1')
+    tune.run(
+        functools.partial(
+            trainMME,
+            trainer=trainer,
+            args=args,
+        ),
+        resources_per_trial={"cpu": 5, "gpu": 1},
+        search_alg=suggester,
+        num_samples=20,
+        scheduler=scheduler,
+        progress_reporter=reporter,
+        name="tune_mme_asha",
+    )
 
 
 if __name__ == '__main__':

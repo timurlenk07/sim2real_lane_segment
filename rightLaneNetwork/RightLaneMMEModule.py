@@ -251,7 +251,7 @@ class TuneReportCallback(Callback):
             val_acc=trainer.callback_metrics["val_acc"].item(),
             val_dice=trainer.callback_metrics["val_dice"].item(),
             val_iou=trainer.callback_metrics["val_iou"].item(),
-            epoch=trainer.callback_metrics['step'].item(),
+            epoch=trainer.callback_metrics['step'],
         )
 
 

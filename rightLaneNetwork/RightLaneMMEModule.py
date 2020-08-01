@@ -1,9 +1,6 @@
 import functools
 import math
 import os
-from argparse import ArgumentParser
-from collections import OrderedDict
-
 import pytorch_lightning as pl
 import ray
 import torch
@@ -11,11 +8,13 @@ from albumentations import (
     Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
 )
 from albumentations.pytorch import ToTensorV2
+from argparse import ArgumentParser
+from collections import OrderedDict
 from hyperopt import hp
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from ray import tune
-from ray.tune import CLIReporter
+from ray.tune import CLIReporter, Trainable
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.suggest.hyperopt import HyperOptSearch
 from torch.nn.functional import cross_entropy
@@ -33,7 +32,7 @@ def adentropy(output, lamda=1.0):
 
 
 class RightLaneMMEModule(pl.LightningModule):
-    def __init__(self, config: dict = dict(), *,
+    def __init__(self, *,
                  dataPath=None, width=160, height=120, gray=False, augment=False, batchSize=32,
                  optim1='SGD', optim2='SGD', momentum1=0.9, momentum2=0.9, sched1='StepLR', sched2='StepLR',
                  lr=1e-3, lr_ratio1=1, lr_ratio2=1e-1, lr_sched_ratio=1e-4, decay=1e-4, **kwargs):
@@ -44,23 +43,23 @@ class RightLaneMMEModule(pl.LightningModule):
         self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = None, None, None, None
 
         # Dataset transformation parameters
-        self.grayscale = gray if 'grayscale' not in config else config['grayscale']
-        self.augment = augment if 'augment' not in config else config['augment']
+        self.grayscale = gray
+        self.augment = augment
         self.height, self.width = height, width
 
         # Training parameters
-        self.batchSize = batchSize if 'batchSize' not in config else config['batchSize']
-        self.optim1 = optim1 if 'optim1' not in config else config['optim1']
-        self.optim2 = optim2 if 'optim2' not in config else config['optim2']
-        self.momentum1 = momentum1 if 'momentum1' not in config else config['momentum1']
-        self.momentum2 = momentum2 if 'momentum2' not in config else config['momentum2']
-        self.sched1 = sched1 if 'sched1' not in config else config['sched1']
-        self.sched2 = sched2 if 'sched2' not in config else config['sched2']
-        self.lr = lr if 'lr' not in config else config['lr']
-        self.lr_ratio1 = lr_ratio1 if 'lr_ratio1' not in config else config['lr_ratio1']
-        self.lr_ratio2 = lr_ratio2 if 'lr_ratio2' not in config else config['lr_ratio2']
-        self.lr_sched_ratio = lr_sched_ratio if 'lr_sched_ratio' not in config else config['lr_sched_ratio']
-        self.decay = decay if 'decay' not in config else config['decay']
+        self.batchSize = batchSize
+        self.optim1 = optim1
+        self.optim2 = optim2
+        self.momentum1 = momentum1
+        self.momentum2 = momentum2
+        self.sched1 = sched1
+        self.sched2 = sched2
+        self.lr = lr
+        self.lr_ratio1 = lr_ratio1
+        self.lr_ratio2 = lr_ratio2
+        self.lr_sched_ratio = lr_sched_ratio
+        self.decay = decay
 
         # Save hyperparameters
         self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize',
@@ -168,19 +167,19 @@ class RightLaneMMEModule(pl.LightningModule):
 
         if self.sched1 == 'StepLR':
             lr_schedulerF = StepLR(optimizerF, step_size=1, gamma=self.lr_sched_ratio ** (1.0 / 140))  # max_epochs root
-        elif self.sched1 == 'CosineAnnealingWarmRestarts':
+        elif self.sched1 == 'CAWR':
             lr_schedulerF = CosineAnnealingWarmRestarts(optimizerF, T_0=20, T_mult=2,
                                                         eta_min=self.lr * self.lr_sched_ratio)
-        elif self.sched1 == 'CosineAnnealingLR':
+        elif self.sched1 == 'CALR':
             lr_schedulerF = CosineAnnealingLR(optimizerF, T_max=20, eta_min=self.lr * self.lr_sched_ratio)
 
         if self.sched2 == 'StepLR':
             lr_schedulerG = StepLR(optimizerG, step_size=1, gamma=self.lr_sched_ratio ** (1.0 / 140))  # max_epochs root
-        elif self.sched2 == 'CosineAnnealingWarmRestarts':
+        elif self.sched2 == 'CAWR':
             lr_schedulerG = CosineAnnealingWarmRestarts(optimizerG, T_0=20, T_mult=2,
                                                         eta_min=self.lr * min(self.lr_ratio1,
                                                                               self.lr_ratio2) * self.lr_sched_ratio)
-        elif self.sched2 == 'CosineAnnealingLR':
+        elif self.sched2 == 'CALR':
             lr_schedulerG = CosineAnnealingLR(optimizerG, T_max=20,
                                               eta_min=self.lr * min(self.lr_ratio1,
                                                                     self.lr_ratio2) * self.lr_sched_ratio)
@@ -256,7 +255,11 @@ class TuneReportCallback(Callback):
 
 
 def trainMME(config, trainer, args):
-    model = RightLaneMMEModule(config, **vars(args))
+    module_params = vars(args)
+    module_params.update(config)
+    if module_params['sched2'] == 'same':
+        module_params['sched2'] = module_params['sched1']
+    model = RightLaneMMEModule(**module_params)
     model.load_state_dict(torch.load(args.pretrained_path))
 
     trainer.fit(model)
@@ -292,17 +295,15 @@ def main(args):
 
     space = {
         'augment': hp.choice('augment', [True, False]),
-        'optim1': hp.choice('optim1', ['SGD', 'Adam']),
-        'optim2': hp.choice('optim2', ['SGD', 'Adam']),
         'momentum1': hp.choice('momentum1', [0.8, 0.9, 0.95, 0.99]),
         'momentum2': hp.choice('momentum2', [0.8, 0.9, 0.95, 0.99]),
-        'sched1': hp.choice('sched1', ['StepLR', 'CosineAnnealingWarmRestarts', 'CosineAnnealingLR']),
-        'sched2': hp.choice('sched2', ['StepLR', 'CosineAnnealingWarmRestarts', 'CosineAnnealingLR']),
-        'lr': hp.loguniform('lr', base10_to_basee(-4), base10_to_basee(-1)),
-        'lr_ratio1': hp.loguniform('lr_ratio1', base10_to_basee(-3), base10_to_basee(0)),
-        'lr_ratio2': hp.loguniform('lr_ratio2', base10_to_basee(-3), base10_to_basee(0)),
-        'lr_sched_ratio': hp.loguniform('lr_sched_ratio', base10_to_basee(-5), base10_to_basee(-2)),
-        'decay': hp.loguniform('decay', base10_to_basee(-6), base10_to_basee(-3)),
+        'sched1': hp.choice('sched1', ['StepLR', 'CAWR', 'CALR']),
+        'sched2': hp.choice('sched2', ['StepLR', 'same']),
+        'lr': hp.choice('lr', [1e-4 * (10 ** (i / 2)) for i in range(9)]),
+        # 1e-5 to 1; Like loguniform, step by sqrt(10)
+        'lr_ratio1': hp.choice('lr_ratio1', [1e-3 * (10 ** (i / 2)) for i in range(7)]),  # 1e-3 to 1
+        'lr_ratio2': hp.choice('lr_ratio2', [1e-3 * (10 ** (i / 2)) for i in range(7)]),  # 1e-3 to 1
+        'lr_sched_ratio': hp.choice('lr_sched_ratio', [1e-5 * (10 ** (i / 2)) for i in range(7)]),  # 1e-5 to 1e-2
     }
 
     suggester = HyperOptSearch(

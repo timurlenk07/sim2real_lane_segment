@@ -1,6 +1,8 @@
 import functools
-import math
 import os
+from argparse import ArgumentParser
+from collections import OrderedDict
+
 import pytorch_lightning as pl
 import ray
 import torch
@@ -8,13 +10,12 @@ from albumentations import (
     Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
 )
 from albumentations.pytorch import ToTensorV2
-from argparse import ArgumentParser
-from collections import OrderedDict
 from hyperopt import hp
+from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from ray import tune
-from ray.tune import CLIReporter, Trainable
+from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.suggest.hyperopt import HyperOptSearch
 from torch.nn.functional import cross_entropy
@@ -255,10 +256,12 @@ class TuneReportCallback(Callback):
 
 
 def trainMME(config, trainer, args):
+    if args.reproducible:
+        seed_everything(42)
+        args.deterministic = True
     module_params = vars(args)
     module_params.update(config)
-    if module_params['sched2'] == 'same':
-        module_params['sched2'] = module_params['sched1']
+    module_params['sched1'] = 'CALR'
     model = RightLaneMMEModule(**module_params)
     model.load_state_dict(torch.load(args.pretrained_path))
 
@@ -267,11 +270,8 @@ def trainMME(config, trainer, args):
 
 def main(args):
     if args.reproducible:
-        import numpy as np
-        np.random.seed(42)
-        torch.manual_seed(42)
+        seed_everything(42)
         args.deterministic = True
-        args.benchmark = True
 
     if args.default_root_dir is None:
         args.default_root_dir = 'results'
@@ -290,16 +290,12 @@ def main(args):
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
 
-    def base10_to_basee(n):
-        return math.log(10 ** n)
-
     space = {
         'augment': hp.choice('augment', [True, False]),
         'momentum1': hp.choice('momentum1', [0.8, 0.9, 0.95, 0.99]),
         'momentum2': hp.choice('momentum2', [0.8, 0.9, 0.95, 0.99]),
-        'sched1': hp.choice('sched1', ['StepLR', 'CAWR', 'CALR']),
-        'sched2': hp.choice('sched2', ['StepLR', 'same']),
-        'lr': hp.choice('lr', [1e-4 * (10 ** (i / 2)) for i in range(9)]),
+        'sched2': hp.choice('sched2', ['StepLR', 'CALR']),
+        'lr': hp.choice('lr', [1e-3 * (10 ** (i / 2)) for i in range(7)]),
         # 1e-5 to 1; Like loguniform, step by sqrt(10)
         'lr_ratio1': hp.choice('lr_ratio1', [1e-3 * (10 ** (i / 2)) for i in range(7)]),  # 1e-3 to 1
         'lr_ratio2': hp.choice('lr_ratio2', [1e-3 * (10 ** (i / 2)) for i in range(7)]),  # 1e-3 to 1

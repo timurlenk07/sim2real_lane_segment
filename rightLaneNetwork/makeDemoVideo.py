@@ -1,4 +1,3 @@
-import functools
 import os
 from argparse import ArgumentParser
 
@@ -9,7 +8,7 @@ from tqdm import trange
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
 from RightLaneSTModule import RightLaneSTModule
-from dataManagement.myTransforms import testTransform
+from dataManagement.myTransforms import MyTransform
 
 haveCuda = torch.cuda.is_available()
 
@@ -72,7 +71,7 @@ if __name__ == '__main__':
         raise RuntimeError(f"Cannot recognize module type {args.module_type}")
 
     # Get transform function
-    transform = functools.partial(testTransform, width=model.width, height=model.height, gray=model.grayscale)
+    transform = MyTransform(width=model.width, height=model.height, gray=model.grayscale, augment=False)
 
     model.eval()
     main(args.videoPath, args.outputPath, model, transform)

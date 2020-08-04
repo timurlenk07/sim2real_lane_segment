@@ -1,23 +1,19 @@
-import functools
 import os
 from argparse import ArgumentParser
 from collections import OrderedDict
 
 import pytorch_lightning as pl
 import torch
-from albumentations import (
-    Compose, ToGray, Resize, NoOp, HueSaturationValue, Normalize, MotionBlur, RandomSizedCrop, GaussNoise, OneOf
-)
-from albumentations.pytorch import ToTensorV2
+from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
 from torch.optim import SGD
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
 from dataManagement.myDatasets import ParallelDataset, RightLaneDataset
-from dataManagement.myTransforms import testTransform
+from dataManagement.myTransforms import MyTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier, grad_reverse
 
 
@@ -27,50 +23,43 @@ def adentropy(output, lamda=1.0):
 
 class RightLaneMMEModule(pl.LightningModule):
     def __init__(self, dataPath=None, width=160, height=120, gray=False,
-                 augment=False, batchSize=32, lr=1e-3, decay=1e-4, **kwargs):
+                 augment=False, batch_size=32, lr=1e-3, decay=1e-4, **kwargs):
         super().__init__()
 
-        # Dataset parameters
         self.dataPath = dataPath
-        self.sourceSet, self.targetTrainSet, self.targetUnlabelledSet, self.targetTestSet = None, None, None, None
-        self.batchSize = batchSize
+        self.dataSets = dict()
 
-        # Dataset transformation parameters
+        # Network parameters
+        self.width, self.height = width, height
         self.grayscale = gray
-        self.augment = augment
-        self.height, self.width = height, width
+
+        # Create network parts
+        self.featureExtractor = FCDenseNet57Base()
+        self.classifier = FCDenseNet57Classifier(n_classes=2)
 
         # Training parameters
+        self.augment = augment
+        self.batch_size = batch_size
         self.lr = lr
         self.decay = decay
 
-        # save hyperparameters
-        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batchSize', 'lr', 'decay')
-        print(f"The model has the following hyperparameters:")
-        print(self.hparams)
-
-        # Network parts
-        self.featureExtractor = FCDenseNet57Base()
-        self.classifier = FCDenseNet57Classifier(n_classes=2)
+        # Save hyperparameters
+        self.save_hyperparameters('width', 'height', 'gray', 'augment', 'batch_size', 'lr', 'decay')
 
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
-        # Data location
-        parser.add_argument('--dataPath', type=str)
+        # Network parameters
+        parser.add_argument('--gray', action='store_true', help="Convert input image to grayscale")
+        parser.add_argument('--width', type=int, default=160, help="Resize width of input images of the network")
+        parser.add_argument('--height', type=int, default=120, help="Resize height of input images of the network")
 
-        # parametrize the network
-        parser.add_argument('--gray', action='store_true', help='Convert input image to grayscale')
-        parser.add_argument('-wd', '--width', type=int, default=160, help='Resized input image width')
-        parser.add_argument('-hg', '--height', type=int, default=120, help='Resized input image height')
-
-        # Training hyperparams
-        parser.add_argument('--augment', action='store_true', help='Convert input image to grayscale')
-        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help='Base learning rate')
-        parser.add_argument('--decay', type=float, default=1e-4,
-                            help='L2 weight decay value')
-        parser.add_argument('-b', '--batchSize', type=int, default=32, help='Input batch size')
+        # Training parameters
+        parser.add_argument('--augment', action='store_true', help="Use data augmentation on training set")
+        parser.add_argument('-lr', '--learningRate', type=float, default=1e-3, help="Starting learning rate")
+        parser.add_argument('--decay', type=float, default=1e-4, help="L2 weight decay value")
+        parser.add_argument('-b', '--batch_size', type=int, default=32, help="Input batch size")
 
         return parser
 
@@ -79,67 +68,47 @@ class RightLaneMMEModule(pl.LightningModule):
         x = self.classifier(x)
         return x
 
-    def transform(self, img, label=None):
-        augmentations = Compose([
-            HueSaturationValue(p=0.5),
-            RandomSizedCrop(min_max_height=(self.height // 2, self.height * 4), height=self.height, width=self.width,
-                            w2h_ratio=self.width / self.height, always_apply=True),
-            OneOf([MotionBlur(p=0.5), GaussNoise(p=0.5)], p=1),
-        ])
-        aug = Compose([
-            augmentations if self.augment else Resize(height=self.height, width=self.width, always_apply=True),
-            ToGray(always_apply=True) if self.grayscale else NoOp(always_apply=True),
-            Normalize(always_apply=True),
-            ToTensorV2(),
-        ])
-
-        if label is not None and len(label.shape) >= 2:
-            # Binarize label
-            label[label != 0] = 1
-
-            augmented = aug(image=img, mask=label)
-            img = augmented['image']
-            label = augmented['mask'].squeeze().long()
-        else:
-            augmented = aug(image=img)
-            img = augmented['image']
-
-        return img, label
-
     def prepare_data(self):
-        testTransform2 = functools.partial(testTransform, width=self.width, height=self.height, gray=self.grayscale)
+        trainTransform = MyTransform(width=self.width, height=self.height, gray=self.grayscale, augment=self.augment)
+        testTransform = MyTransform(width=self.width, height=self.height, gray=self.grayscale, augment=False)
 
-        self.sourceSet = RightLaneDataset(os.path.join(self.dataPath, 'source'), self.transform, haveLabels=True)
-        self.targetTrainSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'),
-                                               self.transform, haveLabels=True)
-        self.targetUnlabelledSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'unlabelled'),
-                                                    testTransform2, haveLabels=False)
-        self.targetTestSet = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'), testTransform2,
-                                              haveLabels=True)
+        self.dataSets['source'] = RightLaneDataset(os.path.join(self.dataPath, 'source'), trainTransform,
+                                                   haveLabels=True)
+        self.dataSets['targetTrain'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'),
+                                                        trainTransform, haveLabels=True)
+        self.dataSets['targetUnlabelled'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'unlabelled'),
+                                                             trainTransform, haveLabels=False)
+        self.dataSets['targetTest'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'), testTransform,
+                                                       haveLabels=True)
 
     def train_dataloader(self):
-        STSet = ConcatDataset([self.sourceSet, self.targetTrainSet])
-        parallelDataset = ParallelDataset(STSet, self.targetUnlabelledSet)
-        assert len(STSet) <= len(self.targetUnlabelledSet)
+        sourceSet = self.dataSets['source']
+        targetSet = self.dataSets['targetTrain']
+        STSet = ConcatDataset([sourceSet, targetSet])
+        parallelDataset = ParallelDataset(STSet, self.dataSets['targetUnlabelled'])
+        assert len(STSet) <= len(self.dataSets['targetUnlabelled'])
 
-        source_weights = [1.0 / len(self.sourceSet) for _ in range(len(self.sourceSet))]
-        target_weights = [1.0 / len(self.targetTrainSet) for _ in range(len(self.targetTrainSet))]
+        source_weights = [1.0 / len(sourceSet) for _ in range(len(sourceSet))]
+        target_weights = [1.0 / len(targetSet) for _ in range(len(targetSet))]
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(parallelDataset, batch_size=self.batchSize, sampler=sampler, num_workers=8)
+        return DataLoader(parallelDataset, sampler=sampler, batch_size=self.batch_size, num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.targetTestSet, batch_size=self.batchSize, shuffle=False, num_workers=8)
+        return self.test_dataloader()
+
+    def test_dataloader(self):
+        return DataLoader(self.dataSets['targetTest'], batch_size=self.batch_size, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
         optimizerF = SGD(self.parameters(), lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
         optimizerG = SGD([
             {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
-            {'params': self.classifier.parameters(), 'lr': self.lr}
+            {'params': self.classifier.parameters(), 'lr': self.lr / 3.1}
         ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
-        lr_schedulerF = CosineAnnealingWarmRestarts(optimizerF, T_0=20, T_mult=2, eta_min=self.lr * 1e-4)
-        lr_schedulerG = CosineAnnealingWarmRestarts(optimizerG, T_0=20, T_mult=2, eta_min=self.lr * 1e-5)
+        lr_schedulerF = CosineAnnealingLR(optimizerF, T_max=25, eta_min=self.lr * 1e-3)
+        lr_schedulerG = CosineAnnealingLR(optimizerG, T_max=25, eta_min=self.lr * 1e-4)
         return [optimizerG, optimizerF], [lr_schedulerG, lr_schedulerF]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
@@ -163,71 +132,89 @@ class RightLaneMMEModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
 
-        # Hálón átpropagáljuk a bemenetet, költséget számítunk
+        # Forward propagation, loss calculation
         outputs = self.forward(x)
         loss = cross_entropy(outputs, y)
 
         _, labels_hat = torch.max(outputs, 1)
 
+        weight = x.shape[0]
         output = OrderedDict({
-            'val_loss': loss,
-            'acc': accuracy(labels_hat, y),
-            'dice': dice_score(outputs, y),
-            'iou': iou(labels_hat, y, remove_bg=True),
-            'weight': y.shape[0],
+            'loss': loss * weight,
+            'acc': accuracy(labels_hat, y) * weight,
+            'dice': dice_score(outputs, y) * weight,
+            'iou': iou(labels_hat, y) * weight,
+            'weight': weight,
         })
 
         return output
 
     def validation_epoch_end(self, outputs):
-        val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        weight_count = sum(x['weight'] for x in outputs)
-        weighted_acc = torch.stack([x['acc'] * x['weight'] for x in outputs]).sum()
-        weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
-        weighted_iou = torch.stack([x['iou'] * x['weight'] for x in outputs]).sum()
-        val_acc = weighted_acc / weight_count * 100.0
-        val_dice = weighted_dice / weight_count
-        val_iou = weighted_iou / weight_count * 100.0
+        total_weight = sum(x['weight'] for x in outputs)
+        val_loss = sum([x['loss'] for x in outputs]) / total_weight
+        val_acc = sum([x['acc'] for x in outputs]) / total_weight * 100.0
+        val_dice = sum([x['dice'] for x in outputs]) / total_weight
+        val_iou = sum([x['iou'] for x in outputs]) / total_weight * 100.0
 
-        logs = {'val_loss': val_loss,
-                'val_acc': val_acc,
-                'val_dice': val_dice,
-                'val_iou': val_iou,
-                'step': self.current_epoch}
+        logs = {
+            'val_loss': val_loss,
+            'val_acc': val_acc,
+            'val_dice': val_dice,
+            'val_iou': val_iou,
+            'step': self.current_epoch,
+        }
+        return {'progress_bar': logs, 'log': logs}
+
+    def test_step(self, batch, batch_idx):
+        return self.validation_step(batch, batch_idx)
+
+    def test_epoch_end(self, outputs):
+        total_weight = sum(x['weight'] for x in outputs)
+        test_loss = sum([x['loss'] for x in outputs]) / total_weight
+        test_acc = sum([x['acc'] for x in outputs]) / total_weight * 100.0
+        test_dice = sum([x['dice'] for x in outputs]) / total_weight
+        test_iou = sum([x['iou'] for x in outputs]) / total_weight * 100.0
+
+        logs = {
+            'test_loss': test_loss,
+            'test_acc': test_acc,
+            'test_dice': test_dice,
+            'test_iou': test_iou,
+        }
         return {'progress_bar': logs, 'log': logs}
 
 
-def main(args):
-    if args.reproducible:
-        import numpy as np
-        np.random.seed(42)
-        torch.manual_seed(42)
+def main(args, model_name: str, reproducible: bool, comet: bool):
+    if reproducible:
+        seed_everything(42)
         args.deterministic = True
         args.benchmark = True
-
-    model = RightLaneMMEModule(**vars(args))
-    model.load_state_dict(torch.load(args.pretrained_path))
 
     if args.default_root_dir is None:
         args.default_root_dir = 'results'
 
-    if args.comet:
-        comet_logger = pl.loggers.CometLogger(api_key=os.environ.get('COMET_API_KEY'),
-                                              workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
-                                              project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
-                                              experiment_name='MME'  # Optional
-                                              )
+    if comet:
+        comet_logger = pl.loggers.CometLogger(
+            api_key=os.environ.get('COMET_API_KEY'),
+            workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
+            project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
+            experiment_name=model_name  # Optional
+        )
         args.logger = comet_logger
 
     # Save best model
-    args.checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(args.default_root_dir, 'MME.ckpt'),
+    model_checkpoint = ModelCheckpoint(
+        filepath=os.path.join(args.default_root_dir, model_name + '.ckpt'),
         save_top_k=1,
         verbose=False,
         monitor='val_iou',
         mode='max',
-        prefix=str(os.getpid()),
+        prefix=model_name + str(os.getpid())
     )
+    args.checkpoint_callback = model_checkpoint
+
+    model = RightLaneMMEModule(**vars(args))
+    model.load_state_dict(torch.load(args.pretrained_path))
 
     # Parse all trainer options available from the command line
     trainer = pl.Trainer.from_argparse_args(args)
@@ -235,27 +222,35 @@ def main(args):
     trainer.fit(model)
 
     # Reload best model
-    model.load_from_checkpoint(args.checkpoint_callback.kth_best_model)
+    model = RightLaneMMEModule.load_from_checkpoint(model_checkpoint.kth_best_model_path, dataPath=args.dataPath)
 
     # Save checkpoint and weights
-    ckpt_path = os.path.join(args.default_root_dir, 'MME.ckpt')
-    weights_path = os.path.join(args.default_root_dir, 'MME_weights.pth')
+    ckpt_path = os.path.join(args.default_root_dir, model_name + '.ckpt')
+    weights_path = os.path.join(args.default_root_dir, model_name + '_weights.pth')
     trainer.save_checkpoint(ckpt_path)
     torch.save(model.state_dict(), weights_path)
     if args.comet:
-        comet_logger.experiment.log_model('MME_ckpt', ckpt_path)
-        comet_logger.experiment.log_model('MME_weights', weights_path)
+        comet_logger.experiment.log_model(model_name + '_ckpt', ckpt_path)
+        comet_logger.experiment.log_model(model_name + '_weights', weights_path)
+
+    # Perform testing
+    trainer.test(model)
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
 
+    # Data location
+    parser.add_argument('--dataPath', type=str, help="Path of database root")
+
     parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
-    parser.add_argument('--reproducible', action='store_true', help="Set seed to 42 and deterministic to True.")
+    parser.add_argument('--model_name', type=str, default='mme', help='Model identifier for logging and checkpoints.')
+    parser.add_argument('--reproducible', action='store_true',
+                        help="Set seed to 42 and deterministic and benchmark to True.")
 
     # Need pretrained weights
     parser.add_argument('--pretrained_path', type=str,
-                        help='This script uses pretrained weights of FCDenseNet57. Define path to weights here.')
+                        help="This script uses pretrained weights of FCDenseNet57. Define path to weights here.")
 
     # Add model arguments to parser
     parser = RightLaneMMEModule.add_model_specific_args(parser)
@@ -265,4 +260,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    main(args)
+    main(args, model_name=args.model_name, reproducible=args.reproducible, comet=args.comet)

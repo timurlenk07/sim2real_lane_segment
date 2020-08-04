@@ -52,9 +52,9 @@ def main(inputVideo, outputVideo, model, transform):
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME', 'sandt'])
-    parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
-    parser.add_argument('--videoPath', type=str, default='./testVideo.avi')
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'sandt', 'hm', 'CycleGAN', 'MME'])
+    parser.add_argument('--checkpointPath', type=str)
+    parser.add_argument('--videoPath', type=str)
     parser.add_argument('--outputPath', type=str, default='./demoVideo.avi')
     args = parser.parse_args()
 
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     # Parse model
     if args.module_type == 'MME':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
-    elif args.module_type in ['baseline', 'CycleGAN']:
+    elif args.module_type in ['baseline', 'hm', 'CycleGAN']:
         model = RightLaneModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
     elif args.module_type == 'sandt':
         model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)

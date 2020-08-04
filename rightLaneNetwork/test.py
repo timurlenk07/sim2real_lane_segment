@@ -25,7 +25,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     torch.backends.cudnn.benchmark = True
 
     # Parse model
-    if module_type == 'MME':
+    if module_type == 'mme':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     elif module_type in ['baseline', 'hm', 'CycleGAN']:
         model = RightLaneModule.load_from_checkpoint(checkpoint_path=checkpointPath)
@@ -110,7 +110,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'sandt', 'hm', 'CycleGAN', 'MME'])
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'sandt', 'hm', 'CycleGAN', 'mme'])
     parser.add_argument('--checkpointPath', type=str)
     parser.add_argument('-c', '--showCount', type=int, default=5)
     parser.add_argument('--realDataPath', type=str)

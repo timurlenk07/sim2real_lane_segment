@@ -8,6 +8,10 @@ All the code related to neural networks are implemented in PyTorch and, recently
 Versions are always updated, so I plan to use the newest version possible.
 If this repo is finalised, or I wish to make a tag of it then I will add specific version informations.
 
+## Prerequisites
+All data generation code was run on Ubuntu 20 and Python3.8, while all training code was run on Ubuntu 16 and Python3.7 on a DGX Station.
+For package requirements please see [requirements.txt](requirements.txt)
+
 ## Data generation
 Data can be manually generated from the modified simulator contained in [the rightLaneDatagen folder](rightLaneDatagen).
 To use it one needs to launch [manual_control.py](rightLaneDatagen/manual_control.py) with a selected map from [rightLaneDatagen/gym_duckietown/maps](rightLaneDatagen/gym_duckietown/maps).
@@ -58,7 +62,7 @@ simData
 Run [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py) in order to disassemble the videos into separate images while also sample them into train, validation and test subsets.
 A typical command would look like this:
 ```commandline
-python3 preprocessDatabase.py --prep_sim_db --dataPath simData
+python3 preprocessDatabase.py --prep_sim_db --dataPath=simData
 ```
 Note that the script acts in-place.
 You might want to backup the original data for later use.
@@ -81,7 +85,7 @@ simData
 We assume data is under folder _simData_ and its structure matches the above described one.
 Simulator baseline training can be reproduced using the following command:
 ```commandline
-python3 RightLaneModule.py --gpus=1 --dataPath simData --batchSize 64 --max_epochs 150
+python3 RightLaneModule.py --gpus=1 --dataPath=simData --batch_size=64 --augment --reproducible --max_epochs=175
 ```
 
 Consider changing CUDA and GPU dependent parameters to better utilize the hardware.
@@ -203,7 +207,7 @@ dataSSDA
 
 The training can be done using the following command (see script and argument help for hyperparameters):
 ```commandline
-python3 RightLaneMMEModule.py --gpus=1 --dataPath dataSSDA --pretrained_path results/FCDenseNet57weights.pth --batchSize 64 --max_epochs 150
+python3 RightLaneMMEModule.py --gpus=1 --dataPath=dataSSDA --pretrained_path=results/baseline_weights.pth --batchSize=32 --augment --reproducible --max_epochs=175
 ```
 
 
@@ -216,6 +220,17 @@ Comparison of trained models can be done using comparison.py that generates an i
 One is able to make predictions for a video (stream of images) via makeDemoVideo.py.
 
 
+## Known problems
+- Distributed training is currently not working because of custom samplers in S&T and MME training.
+
+
+## Good to know
+For selecting GPU-s and Comet logging, the following environment variables and command line parameters have to be defined:
+```commandline
+COMET_API_KEY=your_api_key COMET_WORKSPACE=your_workspace COMET_PROJECT_NAME=your_project_name CUDA_VISIBLE_DEVICES=0 python3 ... --comet
+```
+
+
 ## Links
 - FC-DenseNet: [Paper](https://arxiv.org/abs/1611.09326), code copied from [here](https://github.com/bfortuner/pytorch_tiramisu)
-- SSDA via MME: [this](https://arxiv.org/pdf/1904.06487.pdf), code: [code](https://github.com/VisionLearningGroup/SSDA_MME)
+- SSDA via MME: [Paper](https://arxiv.org/abs/1904.06487), [code](https://github.com/VisionLearningGroup/SSDA_MME)

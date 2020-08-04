@@ -16,11 +16,11 @@ from dataManagement.myDatasets import RightLaneDataset
 from dataManagement.myTransforms import testTransform
 
 
-def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath, testDataPath, **kwargs):
+def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath, testDataPath):
     # Parse model
     if module_type == 'MME':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpointPath)
-    elif module_type in ['baseline', 'CycleGAN']:
+    elif module_type in ['baseline', 'hm', 'CycleGAN']:
         model = RightLaneModule.load_from_checkpoint(checkpoint_path=checkpointPath)
     elif module_type == 'sandt':
         model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=checkpointPath)
@@ -79,20 +79,25 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         test_dice += dice_score(probas, label)
         test_iou += iou(label_hat, label, remove_bg=True)
 
-    print(f"Accuracy on test set: {test_acc * 100.0 / (len(testDataset) + 1e-6):.2f}%")
-    print(f"Dice score on test set: {test_dice / (len(testDataset) + 1e-6):.3f}")
-    print(f"IoU on test set: {test_iou * 100.0 / (len(testDataset) + 1e-6):.2f}")
+    if len(testDataset) > 0:
+        test_acc /= len(testDataset)
+        test_dice /= len(testDataset)
+        test_iou /= len(testDataset)
+
+    print(f"Accuracy on test set: {test_acc * 100.0:.2f}%")
+    print(f"Dice score on test set: {test_dice:.3f}")
+    print(f"IoU on test set: {test_iou * 100.0:.2f}")
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'CycleGAN', 'MME', 'sandt'])
-    parser.add_argument('--checkpointPath', type=str, default='./results/FCDenseNet57.ckpt')
+    parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'sandt', 'hm', 'CycleGAN', 'MME'])
+    parser.add_argument('--checkpointPath', type=str)
     parser.add_argument('-c', '--showCount', type=int, default=5)
-    parser.add_argument('--realDataPath', type=str, default='./data/input')
-    parser.add_argument('--trainDataPath', type=str, default='./data/input')
-    parser.add_argument('--testDataPath', type=str, default='./data')
+    parser.add_argument('--realDataPath', type=str)
+    parser.add_argument('--trainDataPath', type=str)
+    parser.add_argument('--testDataPath', type=str)
     args = parser.parse_args()
     print(vars(args))
 

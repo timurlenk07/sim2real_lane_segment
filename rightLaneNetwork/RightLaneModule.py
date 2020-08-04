@@ -92,11 +92,11 @@ class RightLaneModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
 
-        # Hálón átpropagáljuk a bemenetet, költséget számítunk
+        # Forward propagation, loss calculation
         outputs = self.forward(x)
         loss = cross_entropy(outputs, y)
 
-        # acc
+        # Accuracy calculation
         _, labels_hat = torch.max(outputs, 1)
         train_acc = accuracy(labels_hat, y) * 100
 
@@ -118,7 +118,7 @@ class RightLaneModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
 
-        # Hálón átpropagáljuk a bemenetet, költséget számítunk
+        # Forward propagation, loss calculation
         outputs = self.forward(x)
         loss = cross_entropy(outputs, y)
 

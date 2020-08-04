@@ -11,8 +11,8 @@ from tqdm import tqdm
 def main(ds_source, ds_reference, no_shuffle, workers):
     if workers <= 0:
         workers = 1
-    ds_source = RightLaneDataset(ds_source, transform=lambda x, y: (x, y), haveLabels=False)
-    ds_reference = RightLaneDataset(ds_reference, transform=lambda x, y: (x, y), haveLabels=False)
+    ds_source = RightLaneDataset(ds_source, transform=None, haveLabels=False)
+    ds_reference = RightLaneDataset(ds_reference, transform=None, haveLabels=False)
 
     # Create index lists, shuffle if required
     idxes = list(range(len(ds_source)))

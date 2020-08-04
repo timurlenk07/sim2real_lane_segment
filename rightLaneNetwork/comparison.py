@@ -11,19 +11,21 @@ from dataManagement.myTransforms import testTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57
 
 
-def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
+def main(*, dataPath, showCount, baselinePath, sandtPath, hmPath, cycleganPath, mmePath, resultPath):
     img_paths = glob.glob(os.path.join(dataPath, '*.png'))
     img_paths = random.sample(img_paths, showCount)
 
-    models = [FCDenseNet57(2, 1) for _ in range(3)]
+    models = [FCDenseNet57(n_classes=2) for _ in range(5)]
 
     models[0].load_state_dict(torch.load(baselinePath))
-    models[1].load_state_dict(torch.load(cycleganPath))
-    models[2].load_state_dict(torch.load(mmePath))
+    models[1].load_state_dict(torch.load(sandtPath))
+    models[2].load_state_dict(torch.load(hmPath))
+    models[3].load_state_dict(torch.load(cycleganPath))
+    models[4].load_state_dict(torch.load(mmePath))
     for i in range(len(models)):
         models[i].eval()
 
-    finalResult = np.empty([0, 4 * 160, 3], dtype=np.uint8)
+    finalResult = np.empty([0, 6 * 160, 3], dtype=np.uint8)
     for img_path in img_paths:
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
 
@@ -47,18 +49,21 @@ def main(*, dataPath, showCount, baselinePath, cycleganPath, mmePath, **kwargs):
         result = np.concatenate(imgs, axis=1)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
-    cv2.imwrite('results/comparison.png', finalResult)
-    print("results/comparison.png created.")
+    cv2.imwrite(resultPath, finalResult)
+    print(f"{resultPath} created.")
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--showCount', type=int, default=4)
-    parser.add_argument('--dataPath', type=str, default='./data/input')
-    parser.add_argument('--baselinePath', type=str, default='./FCDenseNet57weights.pth')
-    parser.add_argument('--cycleganPath', type=str, default='./FCDenseNet57GANweights.pth')
-    parser.add_argument('--mmePath', type=str, default='./FCDenseNet57MMEweights.pth')
+    parser.add_argument('--dataPath', type=str)
+    parser.add_argument('--baselinePath', type=str)
+    parser.add_argument('--sandtPath', type=str)
+    parser.add_argument('--hmPath', type=str)
+    parser.add_argument('--cycleganPath', type=str)
+    parser.add_argument('--mmePath', type=str)
+    parser.add_argument('--resultPath', type=str, default='results/comparison.png')
     args = parser.parse_args()
     print(vars(args))
 

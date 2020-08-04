@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import torch
 
-from dataManagement.myTransforms import testTransform
+from dataManagement.myTransforms import MyTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57
 
 
@@ -29,7 +29,7 @@ def main(*, dataPath, showCount, baselinePath, sandtPath, hmPath, cycleganPath, 
     for img_path in img_paths:
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
 
-        img_batch = [testTransform(img, width=160, height=120, gray=False)[0].unsqueeze(0) for _ in models]
+        img_batch = [MyTransform(width=160, height=120, gray=False)(img)[0].unsqueeze(0) for _ in models]
 
         pred_imgs = []
         for model, img_ in zip(models, img_batch):

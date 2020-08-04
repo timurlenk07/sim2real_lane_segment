@@ -1,4 +1,3 @@
-import functools
 import glob
 import os.path
 import random
@@ -7,16 +6,24 @@ from argparse import ArgumentParser
 import cv2
 import numpy as np
 import torch
+from pytorch_lightning import seed_everything
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from RightLaneMMEModule import RightLaneMMEModule
 from RightLaneModule import RightLaneModule
 from RightLaneSTModule import RightLaneSTModule
 from dataManagement.myDatasets import RightLaneDataset
-from dataManagement.myTransforms import testTransform
+from dataManagement.myTransforms import MyTransform
 
 
 def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath, testDataPath):
+    # Ensure reproducibility
+    seed_everything(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
     # Parse model
     if module_type == 'MME':
         model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=checkpointPath)
@@ -29,9 +36,10 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
 
     model.eval()
     print(f"Loaded {model.__class__} instance.")
+    print(f"Model has the following hyperparameters: {model.hparams}")
 
     # Get transform function
-    transform = functools.partial(testTransform, width=model.width, height=model.height, gray=model.grayscale)
+    testTransform = MyTransform(width=model.width, height=model.height, gray=model.grayscale, augment=False)
 
     # Randomly sample showCount number of images from training and real folders
     train_img_paths = glob.glob(os.path.join(trainDataPath, '*.png'))
@@ -48,7 +56,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         real_img = cv2.resize(real_img, (model.width, model.height), cv2.INTER_LANCZOS4)
 
         img_batch = [train_img, real_img]
-        img_batch = torch.stack([transform(img_)[0] for img_ in img_batch])
+        img_batch = torch.stack([testTransform(img_)[0] for img_ in img_batch])
 
         _, pred = torch.max(model.forward(img_batch), 1)
         pred = pred.byte()
@@ -65,28 +73,38 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     cv2.imwrite('results/samplePredictions.png', finalResult)
 
     # Perform qualitative evaluation
-    testDataset = RightLaneDataset(testDataPath, transform=transform, haveLabels=True)
+    testDataset = RightLaneDataset(testDataPath, transform=testTransform, haveLabels=True)
+    testDataLoader = DataLoader(testDataset, batch_size=32, shuffle=False, num_workers=8)
+
+    if torch.cuda.is_available():
+        model = model.cuda()
 
     test_acc, test_dice, test_iou = 0.0, 0.0, 0.0
-    for i in range(len(testDataset)):
-        img, label = testDataset[i]
-        img, label = img.unsqueeze(0), label.unsqueeze(0)
+    totalWeight = 0
+    for batch in tqdm(testDataLoader):
+        img, label = batch
+        if torch.cuda.is_available():
+            img, label = img.cuda(), label.cuda()
 
         probas = model.forward(img)
         _, label_hat = torch.max(probas, 1)
 
-        test_acc += accuracy(label_hat, label)
-        test_dice += dice_score(probas, label)
-        test_iou += iou(label_hat, label, remove_bg=True)
+        weight = img.shape[0]
+        test_acc += accuracy(label_hat, label, num_classes=2) * weight
+        test_dice += dice_score(probas, label) * weight
+        test_iou += iou(label_hat, label, num_classes=2) * weight
+        totalWeight += weight
+
+    assert totalWeight == len(testDataset)
 
     if len(testDataset) > 0:
         test_acc /= len(testDataset)
         test_dice /= len(testDataset)
         test_iou /= len(testDataset)
 
-    print(f"Accuracy on test set: {test_acc * 100.0:.2f}%")
-    print(f"Dice score on test set: {test_dice:.3f}")
-    print(f"IoU on test set: {test_iou * 100.0:.2f}")
+    print(f"Accuracy on test set: {test_acc * 100.0:.4f}%")
+    print(f"Dice score on test set: {test_dice:.4f}")
+    print(f"IoU on test set: {test_iou * 100.0:.4f}")
 
 
 if __name__ == '__main__':
@@ -99,6 +117,5 @@ if __name__ == '__main__':
     parser.add_argument('--trainDataPath', type=str)
     parser.add_argument('--testDataPath', type=str)
     args = parser.parse_args()
-    print(vars(args))
 
     main(**vars(args))

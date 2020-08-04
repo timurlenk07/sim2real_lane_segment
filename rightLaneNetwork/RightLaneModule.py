@@ -124,25 +124,23 @@ class RightLaneModule(pl.LightningModule):
 
         _, labels_hat = torch.max(outputs, 1)
 
+        weight = x.shape[0]
         output = OrderedDict({
-            'val_loss': loss,
-            'acc': accuracy(labels_hat, y),
-            'dice': dice_score(outputs, y),
-            'iou': iou(labels_hat, y),
-            'weight': y.shape[0],
+            'loss': loss * weight,
+            'acc': accuracy(labels_hat, y) * weight,
+            'dice': dice_score(outputs, y) * weight,
+            'iou': iou(labels_hat, y) * weight,
+            'weight': weight,
         })
 
         return output
 
     def validation_epoch_end(self, outputs):
-        val_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        weight_count = sum(x['weight'] for x in outputs)
-        weighted_acc = torch.stack([x['acc'] * x['weight'] for x in outputs]).sum()
-        weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
-        weighted_iou = torch.stack([x['iou'] * x['weight'] for x in outputs]).sum()
-        val_acc = weighted_acc / weight_count * 100.0
-        val_dice = weighted_dice / weight_count
-        val_iou = weighted_iou / weight_count * 100.0
+        total_weight = sum(x['weight'] for x in outputs)
+        val_loss = sum([x['loss'] for x in outputs]) / total_weight
+        val_acc = sum([x['acc'] for x in outputs]) / total_weight * 100.0
+        val_dice = sum([x['dice'] for x in outputs]) / total_weight
+        val_iou = sum([x['iou'] for x in outputs]) / total_weight * 100.0
 
         logs = {
             'val_loss': val_loss,
@@ -154,33 +152,14 @@ class RightLaneModule(pl.LightningModule):
         return {'progress_bar': logs, 'log': logs}
 
     def test_step(self, batch, batch_idx):
-        x, y = batch
-
-        # Hálón átpropagáljuk a bemenetet, költséget számítunk
-        outputs = self.forward(x)
-        loss = cross_entropy(outputs, y)
-
-        _, labels_hat = torch.max(outputs, 1)
-
-        output = OrderedDict({
-            'test_loss': loss,
-            'acc': accuracy(labels_hat, y),
-            'dice': dice_score(outputs, y),
-            'iou': iou(labels_hat, y),
-            'weight': y.shape[0],
-        })
-
-        return output
+        return self.validation_step(batch, batch_idx)
 
     def test_epoch_end(self, outputs):
-        test_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
-        weight_count = sum(x['weight'] for x in outputs)
-        weighted_acc = torch.stack([x['acc'] * x['weight'] for x in outputs]).sum()
-        weighted_dice = torch.stack([x['dice'] * x['weight'] for x in outputs]).sum()
-        weighted_iou = torch.stack([x['iou'] * x['weight'] for x in outputs]).sum()
-        test_acc = weighted_acc / weight_count * 100.0
-        test_dice = weighted_dice / weight_count
-        test_iou = weighted_iou / weight_count * 100.0
+        total_weight = sum(x['weight'] for x in outputs)
+        test_loss = sum([x['loss'] for x in outputs]) / total_weight
+        test_acc = sum([x['acc'] for x in outputs]) / total_weight * 100.0
+        test_dice = sum([x['dice'] for x in outputs]) / total_weight
+        test_iou = sum([x['iou'] for x in outputs]) / total_weight * 100.0
 
         logs = {
             'test_loss': test_loss,

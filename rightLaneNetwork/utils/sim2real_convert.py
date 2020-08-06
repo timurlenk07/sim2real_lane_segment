@@ -93,8 +93,8 @@ def main(dataPath, overwriteData, weightsPath):
         model = model.cuda()
 
     # Get list of images in dataPath
-    imgs = sorted(glob.glob(os.path.join(dataPath, '**', 'input', '*.png')))
-    logging.debug(f"Found images length: {len(imgs)}")
+    imgs = sorted(glob.glob(os.path.join(dataPath, '**', 'input', '*.png'), recursive=True))
+    print(f"Found images length: {len(imgs)}")
 
     transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -117,7 +117,6 @@ def main(dataPath, overwriteData, weightsPath):
             cv2.imwrite('./test_in.png', img)
             img = transform(img)
             img_batch.append(img)
-            break
 
         img_batch = torch.from_numpy(np.stack(img_batch))
         if haveCuda:
@@ -128,12 +127,8 @@ def main(dataPath, overwriteData, weightsPath):
             img = img_batch[i].detach().cpu().squeeze().numpy()
             img = (img.transpose([1, 2, 0]) + 1) / 2
             img = (img * 255).astype(np.uint8)
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             img = cv2.resize(img, (640, 480), cv2.INTER_LANCZOS4)
-            cv2.imwrite('./test_out.png', img)
-            break
             cv2.imwrite(img_p, img)
-        break
 
 
 if __name__ == '__main__':

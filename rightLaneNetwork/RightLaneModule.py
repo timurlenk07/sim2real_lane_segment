@@ -71,9 +71,12 @@ class RightLaneModule(pl.LightningModule):
         trainTransform = MyTransform(width=self.width, height=self.height, gray=self.grayscale, augment=self.augment)
         testTransform = MyTransform(width=self.width, height=self.height, gray=self.grayscale, augment=False)
 
-        self.dataSets['train'] = RightLaneDataset(os.path.join(self.dataPath, 'train'), trainTransform, haveLabels=True)
-        self.dataSets['valid'] = RightLaneDataset(os.path.join(self.dataPath, 'valid'), testTransform, haveLabels=True)
-        self.dataSets['test'] = RightLaneDataset(os.path.join(self.dataPath, 'test'), testTransform, haveLabels=True)
+        self.dataSets['train'] = RightLaneDataset(os.path.join(self.dataPath, 'source'), trainTransform,
+                                                  haveLabels=True)
+        self.dataSets['valid'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'), testTransform,
+                                                  haveLabels=True)
+        self.dataSets['test'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'), testTransform,
+                                                 haveLabels=True)
 
     def train_dataloader(self):
         return DataLoader(self.dataSets['train'], batch_size=self.batch_size, shuffle=True, num_workers=8)

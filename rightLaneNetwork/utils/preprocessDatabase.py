@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 from itertools import zip_longest
-from random import shuffle
+from random import shuffle, seed
 
 import cv2
 
@@ -158,7 +158,8 @@ def createRightLaneDatabase(dataPath, preprocessTransform=None, useSingleSet=Fal
     shutil.rmtree(label_dir)
 
 
-def preprocessRealDB(dataPath, preprocessTransform=None):
+def preprocessRealDB(dataPath, preprocessTransform=None, train_ratio=0.7):
+    # TODO: make use of preprocessTransform
     # Check data is available, ie. file structure is as is required
 
     # Main directory
@@ -174,8 +175,6 @@ def preprocessRealDB(dataPath, preprocessTransform=None):
         raise FileNotFoundError(f"Directories: {missing} do not exist, hence no data is available!")
 
     # Create train and test set
-    train_ratio = 0.7
-
     input_imgs = sorted(glob.glob(os.path.join(input_dir, '*.png')))
     label_imgs = sorted(glob.glob(os.path.join(label_dir, '*.png')))
     assert len(input_imgs) == len(label_imgs), "Input and label image count is not the same!"
@@ -233,16 +232,20 @@ if __name__ == '__main__':
     parser.add_argument('--single_sim_dir', action='store_true')
     parser.add_argument('--prep_real_db', action='store_true')
     parser.add_argument('--dataPath', type=str, default="./realData")
+    parser.add_argument('--train_ratio', type=float, default=0.7)
     parser.add_argument('--grayscale', action='store_true')
     parser.add_argument('--resize', action='store_true')
     parser.add_argument('--width', type=int, default=160)
     parser.add_argument('--height', type=int, default=120)
     args = parser.parse_args()
+    seed(42)
 
     newRes = (args.width, args.height) if args.resize else None
     transform = GrayscaleResizeTransform(grayscale=args.grayscale, newRes=newRes)
 
+    assert 0 < args.train_ratio <= 1
+
     if args.prep_real_db:
-        preprocessRealDB(args.dataPath, transform)
+        preprocessRealDB(args.dataPath, transform, args.train_ratio)
     elif args.prep_sim_db:
         createRightLaneDatabase(args.dataPath, transform, args.single_sim_dir)

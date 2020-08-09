@@ -13,9 +13,7 @@ from dataManagement.myTransforms import MyTransform
 haveCuda = torch.cuda.is_available()
 
 
-def main(inputVideo, outputVideo, model, transform):
-    if haveCuda:
-        model.cuda()
+def predictVideo(inputVideo, outputVideo, model, transform):
     cap_in = cv2.VideoCapture(inputVideo)
 
     fourcc = cv2.VideoWriter_fourcc(*'FFV1')
@@ -48,30 +46,40 @@ def main(inputVideo, outputVideo, model, transform):
         w_out.release()
 
 
+def main(videoIns, videoOuts, module_type, ckpt_path):
+    # Parse model
+    if module_type == 'MME':
+        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=ckpt_path)
+    elif module_type in ['baseline', 'hm', 'CycleGAN']:
+        model = RightLaneModule.load_from_checkpoint(checkpoint_path=ckpt_path)
+    elif module_type == 'sandt':
+        model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=ckpt_path)
+    else:
+        raise RuntimeError(f"Cannot recognize module type {module_type}")
+
+    if haveCuda:
+        model.cuda()
+    model.eval()
+
+    # Get transform function
+    transform = MyTransform(width=model.width, height=model.height, gray=model.grayscale, augment=False)
+
+    for videoIn, videoOut in zip(videoIns, videoOuts):
+        if os.path.exists(videoOut):
+            os.remove(videoOut)
+
+        predictVideo(videoIn, videoOut, model, transform)
+
+
 if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('-t', '--module_type', required=True, choices=['baseline', 'sandt', 'hm', 'CycleGAN', 'MME'])
     parser.add_argument('--checkpointPath', type=str)
-    parser.add_argument('--videoPath', type=str)
-    parser.add_argument('--outputPath', type=str, default='./demoVideo.avi')
+    parser.add_argument('--videoIns', type=str, nargs='+')
+    parser.add_argument('--videoOuts', type=str, default='./demoVideo.avi', nargs='+')
     args = parser.parse_args()
 
-    if os.path.exists(args.outputPath):
-        os.remove(args.outputPath)
+    assert len(args.videoIns) == len(args.videoOuts)
 
-    # Parse model
-    if args.module_type == 'MME':
-        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
-    elif args.module_type in ['baseline', 'hm', 'CycleGAN']:
-        model = RightLaneModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
-    elif args.module_type == 'sandt':
-        model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=args.checkpointPath)
-    else:
-        raise RuntimeError(f"Cannot recognize module type {args.module_type}")
-
-    # Get transform function
-    transform = MyTransform(width=model.width, height=model.height, gray=model.grayscale, augment=False)
-
-    model.eval()
-    main(args.videoPath, args.outputPath, model, transform)
+    main(args.videoIns, args.videoOuts, args.module_type, args.checkpointPath)

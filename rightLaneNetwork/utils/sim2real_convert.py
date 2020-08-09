@@ -82,7 +82,7 @@ class GeneratorResNet(nn.Module):
         return self.model(x)
 
 
-def main(dataPath, overwriteData, weightsPath):
+def main(dataPath, overwriteData, weightsPath, batch_size):
     haveCuda = torch.cuda.is_available()
 
     # Make model
@@ -104,17 +104,15 @@ def main(dataPath, overwriteData, weightsPath):
     ])
 
     # Process every batch of data
-    # TODO use batches
     def batch(iterable, n=1):
         l = len(iterable)
         for ndx in range(0, l, n):
             yield iterable[ndx:min(ndx + n, l)]
 
-    for img_p_batch in tqdm(batch(imgs, 1), total=math.ceil(len(imgs) / 1)):
+    for img_p_batch in tqdm(batch(imgs, batch_size), total=math.ceil(len(imgs) / batch_size)):
         img_batch = []
         for img_p in img_p_batch:
             img = cv2.imread(img_p)
-            cv2.imwrite('./test_in.png', img)
             img = transform(img)
             img_batch.append(img)
 
@@ -135,10 +133,11 @@ if __name__ == '__main__':
     assert torch.cuda.device_count() <= 1
 
     parser = ArgumentParser()
-    parser.add_argument('--dataPath', type=str, default='./data')
-    parser.add_argument('--overwriteData', action='store_true')
-    parser.add_argument('--modelWeightsPath', type=str, default='./G_BA.pth')
+    parser.add_argument('--dataPath', type=str)
+    parser.add_argument('--overwriteData', action='store_true', help="Currently unused.")
+    parser.add_argument('--modelWeightsPath', type=str)
+    parser.add_argument('--batch_size', type=int, default=16)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    main(args.dataPath, args.overwriteData, args.modelWeightsPath)
+    main(args.dataPath, args.overwriteData, args.modelWeightsPath, args.batch_size)

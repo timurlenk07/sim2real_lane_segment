@@ -25,7 +25,14 @@ def main(*, dataPath, showCount, baselinePath, sandtPath, hmPath, cycleganPath, 
     for i in range(len(models)):
         models[i].eval()
 
-    finalResult = np.empty([0, 6 * 160, 3], dtype=np.uint8)
+    finalResult = np.zeros([24, 6 * 160, 4], dtype=np.uint8)
+
+    # Write column headers
+    col_names = ['Input', 'Baseline', 'S&T', 'HM', 'CycleGAN', 'MME']
+    for i in range(6):
+        finalResult = cv2.putText(finalResult, col_names[i], (i * 160 + 20, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.75,
+                                  (0, 0, 0, 255))
+
     for img_path in img_paths:
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
 
@@ -47,6 +54,7 @@ def main(*, dataPath, showCount, baselinePath, sandtPath, hmPath, cycleganPath, 
             imgs.append(img2)
 
         result = np.concatenate(imgs, axis=1)
+        result = cv2.cvtColor(result, cv2.COLOR_BGR2BGRA)
         finalResult = np.concatenate((finalResult, result), axis=0)
 
     cv2.imwrite(resultPath, finalResult)

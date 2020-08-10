@@ -8,7 +8,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
@@ -102,13 +102,13 @@ class RightLaneMMEModule(pl.LightningModule):
         return DataLoader(self.dataSets['targetTest'], batch_size=self.batch_size, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
-        optimizerF = SGD(self.parameters(), lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
+        optimizerF = AdamW(self.parameters(), lr=self.lr, weight_decay=self.decay)
         optimizerG = SGD([
-            {'params': self.featureExtractor.parameters(), 'lr': self.lr / 10},
-            {'params': self.classifier.parameters(), 'lr': self.lr / 3.1}
+            {'params': self.featureExtractor.parameters(), 'lr': self.lr / 3},
+            {'params': self.classifier.parameters(), 'lr': self.lr}
         ], lr=self.lr, weight_decay=self.decay, momentum=0.9, nesterov=True)
         lr_schedulerF = CosineAnnealingLR(optimizerF, T_max=25, eta_min=self.lr * 1e-3)
-        lr_schedulerG = CosineAnnealingLR(optimizerG, T_max=25, eta_min=self.lr * 1e-4)
+        lr_schedulerG = CosineAnnealingLR(optimizerG, T_max=25, eta_min=self.lr * 1e-3)
         return [optimizerG, optimizerF], [lr_schedulerG, lr_schedulerF]
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):

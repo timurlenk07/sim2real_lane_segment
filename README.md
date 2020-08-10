@@ -6,7 +6,7 @@ Note however, that this module may work with other setup as well.
 
 All the code related to neural networks are implemented in PyTorch and, recently, in PyTorch Lightning.
 Versions are always updated, so I plan to use the newest version possible.
-If this repo is finalised, or I wish to make a tag of it then I will add specific version informations.
+If this repo is finalised, or I wish to make a tag of it then I will add specific version information.
 
 ## Prerequisites
 All data generation code was run on Ubuntu 20 and Python3.8, while all training code was run on Ubuntu 16 and Python3.7 on a DGX Station.
@@ -23,7 +23,7 @@ Key bindings:
 - Press 'Backspace' in order to random reset the environment
 - Press 'Q' to quit
 
-Additional to selecting a map one may specifiy to use domain randomization with the _domain_rand_ flag set to True.
+Additional to selecting a map one may specify to use domain randomization with the _domain_rand_ flag set to True.
 Another flag worthy of note is _distortion_ that allows camera distortion in domain randomization.
 
 Saving of recorded videos is done via a background thread.
@@ -39,21 +39,14 @@ The post-processing is basically a difference-of-images calculation, followed by
 See postprocess_v2.py for arguments and details.
 
 ### Example training data
-Data pair 1:
-
 ![Original](doc/res_readme/orig_1.jpg)
 ![Annotated](doc/res_readme/annot_1.jpg)
 
-Data pair 2:
 
-![Original](doc/res_readme/orig_2.jpg)
-![Annotated](doc/res_readme/annot_2.jpg)
-
-## Training
-### Baseline: Simulator-only training
-#### Database formatting
-We assume that the obtained video-label pairs in our database are structured in the following directory format:
-```
+## Database preparation
+### Sim data preparation
+We assume that the obtained video-label pairs in our simulator database are structured in the following directory format:
+```bash
 simData
 ├── input
 └── label
@@ -62,38 +55,110 @@ simData
 Run [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py) in order to disassemble the videos into separate images while also sample them into train, validation and test subsets.
 A typical command would look like this:
 ```commandline
-python3 preprocessDatabase.py --prep_sim_db --dataPath=simData
+python3 preprocessDatabase.py --prep_sim_db --single_sim_dir --dataPath=simData
 ```
 Note that the script acts in-place.
 You might want to backup the original data for later use.
 
-The resulting directory structure is as follows:
-```
-simData
-├── test
-│   ├── input
-│   └── label
-├── train
-│   ├── input
-│   └── label
-└── valid
-    ├── input
-    └── label
+### Real data preparation
+For 30 images we have hand-made annotations.
+Ask the repo maintainers for them.
+Extract the acquired .zip file to _annotated_.
+Install python package _labelme_ to label images yourself and to create binary images from the created labels.
+```commandline
+pip install labelme
 ```
 
-#### Training
-We assume data is under folder _simData_ and its structure matches the above described one.
+To download a set of real videos use [getRealData.py](rightLaneNetwork/utils/getRealData.py):
+```commandline
+python3 getRealData.py --save_path realData
+```
+
+Copy the extracted annotations (along with the two scripts) to _realData/annotated_.
+Run the bash script _json2imgs.sh_ that converts the saved labels from json format to .png images.
+Then the python script createRealDB.py creates the following directory structure from the available labelled and unlabelled data:
+```bash
+realData
+├── input
+├── label
+└── unlabelled
+```
+
+To separate the obtained labelled images to separate train and test sets use the preprocessing script [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py)
+```commandline
+python3 preprocessDatabase.py --prep_real_db --dataPath realData --train_ratio=0.8
+```
+
+The above script created the following directory structure:
+```bash
+realData
+├── test
+│   ├── input
+│   └── label
+├── train
+│   ├── input
+│   └── label
+└── unlabelled
+    └── input
+```
+
+Now create folder _simRealData_ and copy the simulator database to a subfolder _source_ along with the real database transferred to _target_.
+The resulting directory structure is as follows:
+```bash
+simRealData
+├── source
+│   ├── input
+│   └── label
+└── target
+    ├── test
+    │   ├── input
+    │   └── label
+    ├── train
+    │   ├── input
+    │   └── label
+    └── unlabelled
+        └── input
+```
+
+## Training
+### Baseline: Simulator-only training
+We assume data is under folder _simRealData_ and its structure matches the above described one.
+The whole of the source domain image set will be used for training while the target domain _train_ set will act as the validation set.
+
 Simulator baseline training can be reproduced using the following command:
 ```commandline
 python3 RightLaneModule.py --gpus=1 --dataPath=simData --batch_size=64 --augment --reproducible --max_epochs=175
 ```
 
 Consider changing CUDA and GPU dependent parameters to better utilize the hardware.
-Other paramters are available for fine-tuning, see script or argument help for details.
+Other parameters are available for fine-tuning, see script or argument help for details.
+
+### Source and target combined domain training
+We can use the same setup as in the baseline solution.
+The difference is that we will use the target domain train set for actual training.
+We won't have validation dataset but will use the test set for evaluation during training.
+```commandline
+python3 RightLaneSTModule.py --gpus=1 --dataPath=simRealData/ --batch_size=64 --augment --reproducible --max_epochs=175
+```
+
+### Histogram matching
+The training process is _exactly_ the same as in the baseline solution.
+The difference is that before training the source set is histogram matched with randomly selected real images.
+This is done offline to eliminate the impact on training time:
+```commandline
+python3 hist_match_datasets.py --ds_source=simRealData_hm/source/ --ds_reference=simRealData_hm/target/unlabelled/ --workers=8
+```
+
+Consider increasing the number of CPU workers to speed up conversion time.
+The actual training is, as we said before, exactly the same as in the baseline solution.
+```commandline
+python3 RightLaneModule.py --gpus=1 --dataPath=simRealData_hm --batch_size=64 --augment --reproducible --max_epochs=175 --model_name=HM
+```
 
 ### Domain Transformation using CycleGAN
 This method uses the same database preparation and training process described in the baseline solution.
-However it is preceded by a CycleGAN training step and before training simulator data should be converted to the real domain.
+However the original data was too complex for the CycleGAN to handle thereby this simulator data set differs from the others (no domain randomization or optical distortion).
+The segmentation model training is preceded by a CycleGAN training step and before training simulator data should be converted to the real domain.
 These two steps are described below.
 
 #### Train CycleGAN
@@ -103,22 +168,22 @@ In _cyclegan.py_ line 121 and 128 change "../../data/%s" to "%s".
 
 Use [getRealData.py](rightLaneNetwork/utils/getRealData.py) to download real Duckietown images.
 ```commandline
-python3 getRealData.py --num_images=-1 --savePath realData
+python3 getRealData.py --save_path realData
 ```
 
 The downloaded images will make up domain B while simulator images will be domain A.
-First the simulator images can be obtained using [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py):
+First the simulator images can be prepared using [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py) (assuming the simpler data set is located at _simData2_):
 ```commandline
-python3 preprocessDatabase.py --prep_sim_db --dataPath simData2 --single_sim_dir
+python3 preprocessDatabase.py --prep_sim_db --single_sim_dir --dataPath simData2
 ```
 
 We are interested only in input images therefore _simData2/label_ folder can be discarded.
 We would like to create the following directory structure, with leaf folders containing .png files:
-```
+```bash
 sim2real
 ├── test
-│   ├── A
-│   └── B
+│   ├── A
+│   └── B
 └── train
     ├── A
     └── B
@@ -133,7 +198,7 @@ find realData/*.png | sort | head -n 25000 | shuf | head -n 5000 | xargs -I{} cp
 find realData/*.png | sort | tail -n 5000 | shuf | head -n 1500 | xargs -I{} cp {} sim2real/test/B
 ```
 
-Now train the CycleGAN (modify hyperparams if needed):
+Now train the CycleGAN (modify hyperparameters if needed):
 ```commandline
 python3 cyclegan.py --dataset_name sim2real --n_epochs 201 --batch_size 32 --n_cpu 8 --img_height 120 --img_width 160 --checkpoint_interval 25 --lambda_cyc 15 --lambda_id 10
 ```
@@ -141,66 +206,34 @@ python3 cyclegan.py --dataset_name sim2real --n_epochs 201 --batch_size 32 --n_c
 Check the results and if satisfied copy _G_AB_200.pth_ to your working folder.
 
 #### Convert simulator data to real domain
-After creating and formatting the database use [sim2real_convert.py](rightLaneNetwork/utils/sim2real_convert.py) to transform simuator images to real domain.
+After creating and formatting the database use [sim2real_convert.py](rightLaneNetwork/utils/sim2real_convert.py) to transform simulator images to real domain.
 This script converts the given database input images inplace.
 ```commandline
-python3 sim2real_convert.py --dataPath simData --modelWeightsPath G_AB_200.pth
+python3 sim2real_convert.py --dataPath simData2 --modelWeightsPath G_BA_200.pth
 ```
 
-The segmentation model training process is the same as in the baseline solution. 
+The segmentation model training process is the same as in the baseline solution.
+Don't forget to replace the original source data set with the simpler one!
+```commandline
+python3 RightLaneModule.py --gpus=1 --dataPath=simRealData_cyclegan --batch_size=64 --augment --reproducible --max_epochs=175 --model_name=CycleGAN
+``` 
 
 ### SSDA via Minimax Entropy
-#### Data preparation
-For 30 images we have hand-made annotations.
-Ask the repo maintainers for them.
-Extract the acquired .zip file to _realData/annotated_.
-Install python package _labelme_ to label images yourself and to create binary images from the created labels.
-```commandline
-pip install labelme
-```
-
-Run the bash script _json2imgs.sh_ in the unpacked zip file that converts the saved labels from json format to .png images.
-Then the python script createRealDB.py creates the following directory structure from the available labelled and unlabelled data:
-```
-realData
-├── input
-├── label
-└── unlabelled
-```
-
-To separate the obtained labelled images to separate train and test sets use the preprocessing script [preprocessDatabase.py](rightLaneNetwork/utils/preprocessDatabase.py)
-```commandline
-python3 preprocessDatabase.py --prep_real_db --dataPath realData
-```
-
-The above script created the following directory structure:
-```
-realData
-├── test
-│   ├── input
-│   └── label
-├── train
-│   ├── input
-│   └── label
-└── unlabelled
-    └── input
-```
-
 #### MME adapting a trained network
 For SSDA MME a combined (but NOT merged) source-target database is required.
-The following format is expected and can be created by copying the above databases:
-```
-dataSSDA
+The following format is expected:
+```bash
+simRealData
 ├── source
-│   ├── input
-│   └── label
+│   ├── input
+│   └── label
 └── target
     ├── test
-    │   ├── input
-    │   └── label
+    │   ├── input
+    │   └── label
     ├── train
-    │   ├── input
-    │   └── label
+    │   ├── input
+    │   └── label
     └── unlabelled
         └── input
 ```
@@ -213,24 +246,48 @@ python3 RightLaneMMEModule.py --gpus=1 --dataPath=dataSSDA --pretrained_path=res
 
 ## Testing
 Trained model evaluation can be done using the provided script test.py.
-The script takes command line arguments, see help for details.
+A usual test of an MME trained model is performed using the following script:
+```commandline
+python3 test.py --module_type=mme --checkpointPath=results/mme.ckpt --realDataPath=simRealData/target/unlabelled/input/ --trainDataPath=simRealData/target/train/input/ --testDataPath=simRealData/target/test/
+```
 
 Comparison of trained models can be done using comparison.py that generates an image file with sample predictions of each model.
+```commandline
+python3 comparison.py --dataPath=simRealData/target/unlabelled/input/ --baselinePath=results/baseline_weights.pth --sandtPath=results/sandt_weights.pth --cycleganPath=results/CycleGAN_weights.pth --hmPath=results/HM_weights.pth --mmePath=results/mme_weights.pth
+```
 
-One is able to make predictions for a video (stream of images) via makeDemoVideo.py.
+One is able to make predictions for a video (treated as a stream of images) via makeDemoVideo.py.
+It can handle as many videos as you provide:
+```commandline
+python3 makeDemoVideo.py --module_type=CycleGAN --checkpointPath=results/CycleGAN.ckpt --videoIns testVideo1.mp4 testVideo2.mp4 --videoOuts demoVideo1.avi demoVideo2.avi
+```
 
 
 ## Known problems
 - Distributed training is currently not working because of custom samplers in S&T and MME training.
+- Reproducibility is an issue despite setting seeds and setting Cuda flags. Creating a worker_init_fn did not solve this problem either.
 
 
-## Good to know
-For selecting GPU-s and Comet logging, the following environment variables and command line parameters have to be defined:
+## Good to know (cheatsheet and such things)
+For selecting GPU-s and Comet logging, some environment variables and command line parameters have to be defined.
+
+Select GPU(s): (-1: no GPU | 0: select GPU_0 | 0,2: select GPU_0 and GPU_2)
 ```commandline
-COMET_API_KEY=your_api_key COMET_WORKSPACE=your_workspace COMET_PROJECT_NAME=your_project_name CUDA_VISIBLE_DEVICES=0 python3 ... --comet
+CUDA_VISIBLE_DEVICES=0 python3 ...
 ```
 
+Comet logging of training:
+```commandline
+COMET_API_KEY=your_api_key COMET_WORKSPACE=your_workspace COMET_PROJECT_NAME=your_project_name python3 ... --comet
+```
+
+Select CPUs: (0,3,4: select CPU_0, CPU_3, CPU_4 | 0-29: select CPU_0 ... CPU_29)
+```commandline
+taskset --cpu-list 10-19 python3 ...
+```
+
+Always define environment variables before commands.
 
 ## Links
-- FC-DenseNet: [Paper](https://arxiv.org/abs/1611.09326), code copied from [here](https://github.com/bfortuner/pytorch_tiramisu)
+- FC-DenseNet (aka. Tiramisu): [Paper](https://arxiv.org/abs/1611.09326), model code copied from [here](https://github.com/bfortuner/pytorch_tiramisu)
 - SSDA via MME: [Paper](https://arxiv.org/abs/1904.06487), [code](https://github.com/VisionLearningGroup/SSDA_MME)

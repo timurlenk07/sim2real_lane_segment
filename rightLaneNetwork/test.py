@@ -109,6 +109,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     print(f"IoU on test set: {test_iou * 100.0:.4f}")
     print(f"Confusion matrix (column: prediction, row: label):")
     print(test_conf_matrix)
+    print(f"Total: {torch.sum(test_conf_matrix)}")
 
 
 if __name__ == '__main__':

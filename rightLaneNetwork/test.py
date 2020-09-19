@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import torch
 from pytorch_lightning import seed_everything
-from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
+from pytorch_lightning.metrics.functional import accuracy, dice_score, iou, confusion_matrix
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -80,6 +80,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         model = model.cuda()
 
     test_acc, test_dice, test_iou = 0.0, 0.0, 0.0
+    test_conf_matrix = torch.zeros(2, 2, device=model.device)
     totalWeight = 0
     for batch in tqdm(testDataLoader):
         img, label = batch
@@ -93,6 +94,7 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
         test_acc += accuracy(label_hat, label, num_classes=2) * weight
         test_dice += dice_score(probas, label) * weight
         test_iou += iou(label_hat, label, num_classes=2) * weight
+        test_conf_matrix += confusion_matrix(label_hat, label)
         totalWeight += weight
 
     assert totalWeight == len(testDataset)
@@ -105,6 +107,8 @@ def main(*, module_type, checkpointPath, showCount, realDataPath, trainDataPath,
     print(f"Accuracy on test set: {test_acc * 100.0:.4f}%")
     print(f"Dice score on test set: {test_dice:.4f}")
     print(f"IoU on test set: {test_iou * 100.0:.4f}")
+    print(f"Confusion matrix (column: prediction, row: label):")
+    print(test_conf_matrix)
 
 
 if __name__ == '__main__':

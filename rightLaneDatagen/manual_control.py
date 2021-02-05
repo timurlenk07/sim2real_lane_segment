@@ -96,7 +96,7 @@ def on_key_press(symbol, modifiers):
     elif symbol == key.A:
         env.annotated = (env.annotated + 1) % 3
         print('Annotation mode set to: {}'.format(env.annotated))
-        if env.annotated == 0:
+        if env.annotated == 0 and recordingInProgress:
             # cannot start form unannotated mode
             # the program doesn't know which annotation mode to pick for the recording
             print("Stopping recording. Cannot record in unannotated mode.")

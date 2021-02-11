@@ -3,6 +3,7 @@ import logging
 import os
 from argparse import ArgumentParser
 from random import shuffle
+import numpy as np
 
 import cv2
 
@@ -25,16 +26,30 @@ if args.clear_data:
 
 
 # Binarization algorithm, with a given original and annotated pair of image
-def binarize(img_orig, img_ant):
-    img_diff = img_orig - img_ant
+def process_classes(img_orig: np.ndarray, img_ant: np.ndarray):
+    img_orig = img_orig.astype(np.int16)
+    img_ant = img_ant.astype(np.int16)
+    img_diff = img_ant - img_orig
 
-    res_gray = cv2.cvtColor(img_diff, cv2.COLOR_BGR2GRAY)
-    res_gray[res_gray > 0] = 255
+    leftLane = img_diff[:, :, 0] > 0
+    rightLane = img_diff[:, :, 1] > 0
+    obstacles = img_diff[:, :, 2] > 0
+    categories = [leftLane, rightLane, obstacles]
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    result = cv2.morphologyEx(res_gray, cv2.MORPH_OPEN, kernel)
-    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel)
-    return result
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    categories = [x.astype(np.uint8) for x in categories]
+    categories = [cv2.morphologyEx(x, cv2.MORPH_OPEN, kernel) for x in categories]
+    categories = [cv2.morphologyEx(x, cv2.MORPH_CLOSE, kernel) for x in categories]
+    categories = tuple((x.astype(np.bool8) for x in categories))
+
+    leftLane, rightLane, obstacles = categories
+
+    res_gray = np.zeros(img_orig.shape[:-1], np.uint8)
+    res_gray[rightLane] = 64 # Right lane
+    res_gray[leftLane] = 128  # Left lane
+    res_gray[obstacles] = 192 # Obstacles
+
+    return res_gray
 
 
 # Get the list of available recordings
@@ -110,7 +125,7 @@ for orig_fp, annot_fp in raw_list:
         vWriter_input.write(frame_o)
 
         # Postprocess annotated frame: binarize it
-        annot_binary = binarize(frame_o, frame_a)
+        annot_binary = process_classes(frame_o, frame_a)
         vWriter_label.write(annot_binary)
 
     logging.info(f"Processing of recording nr. {vid_counter} done.")

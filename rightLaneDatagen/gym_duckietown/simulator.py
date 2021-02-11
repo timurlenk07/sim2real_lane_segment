@@ -1553,7 +1553,7 @@ class Simulator(gym.Env):
 
         # For each object
         for idx, obj in enumerate(self.objects):
-            obj.render(self.draw_bbox)
+            obj.render(self.draw_bbox, self.annotated)
 
         # Draw the agent's own bounding box
         if self.draw_bbox:

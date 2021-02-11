@@ -46,7 +46,7 @@ class WorldObj:
             calculate_safety_radius(self.mesh, self.scale)
 
 
-    def render(self, draw_bbox):
+    def render(self, draw_bbox, annotated=False):
         """
         Renders the object to screen
         """
@@ -70,7 +70,7 @@ class WorldObj:
         gl.glScalef(self.scale, self.scale, self.scale)
         gl.glRotatef(self.y_rot, 0, 1, 0)
         gl.glColor3f(*self.color)
-        self.mesh.render()
+        self.mesh.render(annotated=annotated)
         gl.glPopMatrix()
 
     # Below are the functions that need to

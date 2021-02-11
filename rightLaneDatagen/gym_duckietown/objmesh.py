@@ -3,6 +3,8 @@ from .graphics import *
 from .utils import *
 from . import logger
 
+import os
+
 
 class ObjMesh(object):
     """
@@ -206,6 +208,14 @@ class ObjMesh(object):
             mtl = chunk['mtl']
             if 'map_Kd' in mtl:
                 texture = load_texture(mtl['map_Kd'])
+
+                # Get filename with _cv at the end
+                base, filename = os.path.split(mtl['map_Kd'])
+                filename, extension = filename.split('.')
+                filename = filename + '_cv' + '.' + extension
+                filepath = os.path.join(base, filename)
+                if os.path.isfile(filepath):
+                    texture = (texture, load_texture(filepath))
             else:
                 texture = None
 
@@ -276,12 +286,14 @@ class ObjMesh(object):
 
         return materials
 
-    def render(self):
+    def render(self, annotated=False):
         from pyglet import gl
         for idx, vlist in enumerate(self.vlists):
             texture = self.textures[idx]
 
             if texture:
+                if isinstance(texture, tuple):
+                    texture = texture[1 if annotated else 0]
                 gl.glEnable(gl.GL_TEXTURE_2D)
                 gl.glBindTexture(texture.target, texture.id)
             else:

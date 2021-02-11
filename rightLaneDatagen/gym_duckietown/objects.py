@@ -7,7 +7,7 @@ from .utils import get_file_path
 
 
 class WorldObj:
-    def __init__(self, obj, domain_rand, safety_radius_mult):
+    def __init__(self, obj, domain_rand, safety_radius_mult, annotated_mesh=None):
         """
         Initializes the object and its properties
         """
@@ -25,6 +25,8 @@ class WorldObj:
         self.angle = self.y_rot * (math.pi / 180)
 
         self.generate_geometry()
+
+        self.annotated_mesh = annotated_mesh
 
     def generate_geometry(self):
         # Find corners and normal vectors assoc w. object
@@ -70,7 +72,10 @@ class WorldObj:
         gl.glScalef(self.scale, self.scale, self.scale)
         gl.glRotatef(self.y_rot, 0, 1, 0)
         gl.glColor3f(*self.color)
-        self.mesh.render(annotated=annotated)
+        if annotated and self.annotated_mesh is not None:
+            self.annotated_mesh.render(annotated=annotated)
+        else:
+            self.mesh.render(annotated=annotated)
         gl.glPopMatrix()
 
     # Below are the functions that need to
@@ -106,8 +111,8 @@ class WorldObj:
 class DuckiebotObj(WorldObj):
     def __init__(self, obj, domain_rand, safety_radius_mult, wheel_dist, 
             robot_width, robot_length, gain=2.0, trim=0.0, radius=0.0318, 
-            k=27.0, limit=1.0):
-        WorldObj.__init__(self, obj, domain_rand, safety_radius_mult)
+            k=27.0, limit=1.0, annotated_mesh=None):
+        WorldObj.__init__(self, obj, domain_rand, safety_radius_mult, annotated_mesh=annotated_mesh)
 
         if self.domain_rand:
             self.follow_dist = np.random.uniform(0.3, 0.4)

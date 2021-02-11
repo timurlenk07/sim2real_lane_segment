@@ -682,15 +682,16 @@ class Simulator(gym.Env):
             }
 
             # obj = None
+            annotated_mesh = ObjMesh.get(kind + '_cv') if kind == "duckiebot" else None
             if static:
                 if kind == "trafficlight":
                     obj = TrafficLightObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
                 else:
-                    obj = WorldObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
+                    obj = WorldObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, annotated_mesh=annotated_mesh)
             else:
                 if kind == "duckiebot":
                     obj = DuckiebotObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, WHEEL_DIST,
-                                       ROBOT_WIDTH, ROBOT_LENGTH)
+                                       ROBOT_WIDTH, ROBOT_LENGTH, annotated_mesh=annotated_mesh)
                 elif kind == "duckie":
                     obj = DuckieObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, self.road_tile_size)
                 else:

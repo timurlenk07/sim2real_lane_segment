@@ -8,3 +8,5 @@
 .data
 **/__pycache__/*
 env
+rightLaneDatagen/data/*
+rightLaneDatagen/recordings/*

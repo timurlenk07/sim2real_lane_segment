@@ -31,12 +31,13 @@ def process_classes(img_orig: np.ndarray, img_ant: np.ndarray):
     img_ant = img_ant.astype(np.int16)
     img_diff = img_ant - img_orig
 
-    leftLane = img_diff[:, :, 0] > 0
-    rightLane = img_diff[:, :, 1] > 0
-    obstacles = img_diff[:, :, 2] > 0
+    b, g, r = cv2.split(img_diff)
+    leftLane = b > 0
+    rightLane = g > 0
+    obstacles = (r > 0) | ((r >= 0) & ((b < 0) | (g < 0)))
     categories = [leftLane, rightLane, obstacles]
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
     categories = [x.astype(np.uint8) for x in categories]
     categories = [cv2.morphologyEx(x, cv2.MORPH_OPEN, kernel) for x in categories]
     categories = [cv2.morphologyEx(x, cv2.MORPH_CLOSE, kernel) for x in categories]
@@ -104,7 +105,7 @@ for orig_fp, annot_fp in raw_list:
     isColor = True
     vWriter_input = cv2.VideoWriter(inputFile, fourcc, fps, framesize, isColor)
 
-    isColor = False
+    #isColor = False
     vWriter_label = cv2.VideoWriter(labelFile, fourcc, fps, framesize, isColor)
     
     if not vWriter_input.isOpened() or not vWriter_label.isOpened():
@@ -124,9 +125,9 @@ for orig_fp, annot_fp in raw_list:
         # Postprocess original recording: needs nothing
         vWriter_input.write(frame_o)
 
-        # Postprocess annotated frame: binarize it
+        # Postprocess annotated frame: extract category mask
         annot_binary = process_classes(frame_o, frame_a)
-        vWriter_label.write(annot_binary)
+        vWriter_label.write(cv2.cvtColor(annot_binary, cv2.COLOR_GRAY2BGR))
 
     logging.info(f"Processing of recording nr. {vid_counter} done.")
 

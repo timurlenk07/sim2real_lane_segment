@@ -72,3 +72,7 @@ https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/
 https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/96c345e2985ea2e2308e7ad978a0b85cb803c4c0f3ad30f781f1ebe7c3c40a07
 https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/fc2119165e42f660bf3c244030fc172fab67c8b1b5cfbd953fa1559c970c4d5c
 https://duckietown-ai-driving-olympics-1.s3.amazonaws.com/v3/frankfurt/by-value/sha256/53fda47da15c110b51b982683d9d6325cdc594cb4e0e1d08eb8c22f90ddaf065
+http://ipfs.duckietown.org:8080/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7y7J/logs/20171222163338_a313.video.mp4
+http://ipfs.duckietown.org:8080/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7y7J/logs/20160316210916_pipquack.video.mp4
+http://ipfs.duckietown.org:8080/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7y7J/logs/20160330190902_shamrock.video.mp4
+http://ipfs.duckietown.org:8080/ipfs/QmUbtwQ3QZKmmz5qTjKM3z8LJjsrKBWLUnnzoE5L4M7y7J/logs/20180108141006_a313.video.mp4

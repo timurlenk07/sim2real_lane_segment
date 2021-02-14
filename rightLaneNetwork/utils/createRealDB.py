@@ -59,7 +59,7 @@ def createLabelledDB(labelledPairs, input_dir, label_dir):
 
         if not imitateBehaviour:
             shutil.move(labelledPair['image'], osp.join(input_dir, f'{i:06d}.png'))
-            cv2.imwrite(osp.join(label_dir, f'{i:06d}.png'), lbl.astype(np.uint8) * 64)
+            cv2.imwrite(osp.join(label_dir, f'{i:06d}.png'), lbl.astype(np.uint8))
 
 
 # Assert data is under dataPath directory

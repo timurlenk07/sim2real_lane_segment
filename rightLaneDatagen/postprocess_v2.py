@@ -46,9 +46,9 @@ def process_classes(img_orig: np.ndarray, img_ant: np.ndarray):
     leftLane, rightLane, obstacles = categories
 
     res_gray = np.zeros(img_orig.shape[:-1], np.uint8)
-    res_gray[rightLane] = 64 # Right lane
-    res_gray[leftLane] = 128  # Left lane
-    res_gray[obstacles] = 192 # Obstacles
+    res_gray[rightLane] = 1  # Right lane
+    res_gray[leftLane] = 2  # Left lane
+    res_gray[obstacles] = 3  # Obstacles
 
     return res_gray
 

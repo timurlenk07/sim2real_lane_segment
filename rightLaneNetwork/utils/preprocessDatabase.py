@@ -218,7 +218,7 @@ class GrayscaleResizeTransform:
 
         if label is not None:
             if self.newRes is not None:
-                label = cv2.resize(label, self.newRes)
+                label = cv2.resize(label, self.newRes, interpolation=cv2.INTER_NEAREST)
 
         return img, label
 
@@ -228,9 +228,8 @@ class GrayscaleResizeTransform:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--prep_sim_db', action='store_true')
+    parser.add_argument('--dbType', choices=['sim', 'real'], required=True)
     parser.add_argument('--single_sim_dir', action='store_true')
-    parser.add_argument('--prep_real_db', action='store_true')
     parser.add_argument('--dataPath', type=str, default="./realData")
     parser.add_argument('--train_ratio', type=float, default=0.7)
     parser.add_argument('--grayscale', action='store_true')
@@ -245,7 +244,7 @@ if __name__ == '__main__':
 
     assert 0 < args.train_ratio <= 1
 
-    if args.prep_real_db:
+    if args.dbType == 'real':
         preprocessRealDB(args.dataPath, transform, args.train_ratio)
-    elif args.prep_sim_db:
+    elif args.dbType == 'sim':
         createRightLaneDatabase(args.dataPath, transform, args.single_sim_dir)

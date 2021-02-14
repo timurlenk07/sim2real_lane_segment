@@ -1,4 +1,4 @@
-# Right Lane segmentation in Duckietown environment
+# Semantic Segmentation in Duckietown Environment
 Repository for private project Duckietown at BME VIK (Budapesti Műszaki és Gazdaságtudományi Egyetem Villamosmérnöki és Informatikai Kar).
 
 All used packages are listed in requirements.txt.
@@ -14,7 +14,16 @@ For package requirements please see [requirements.txt](requirements.txt)
 
 ## Data generation
 Data can be manually generated from the modified simulator contained in [the rightLaneDatagen folder](rightLaneDatagen).
+It needs a valid setup of the modified simulator:
+```commandline
+cd rightLaneDatagen
+pip install -e .
+```
+
 To use it one needs to launch [manual_control.py](rightLaneDatagen/manual_control.py) with a selected map from [rightLaneDatagen/gym_duckietown/maps](rightLaneDatagen/gym_duckietown/maps).
+```commandline
+python3 manual_control.py --env-name Duckietown-udem1-v0 --map-name loop_dyn_duckiebots --domain-rand --distortion
+```
 
 Key bindings:
 - Press 'A' to change annotated lane (right/left/none)

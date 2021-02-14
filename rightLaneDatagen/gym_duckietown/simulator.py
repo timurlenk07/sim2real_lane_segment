@@ -698,6 +698,8 @@ class Simulator(gym.Env):
                     msg = 'I do not know what object this is: %s' % kind
                     raise Exception(msg)
 
+            obj.on_driveable_tile = self._collidable_object(obj.obj_corners, obj.obj_norm,
+                                                            find_candidate_tiles(obj.obj_corners, self.road_tile_size))
             self.objects.append(obj)
 
             # Compute collision detection information

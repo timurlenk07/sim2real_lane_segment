@@ -26,6 +26,7 @@ class WorldObj:
 
         self.generate_geometry()
 
+        self.on_driveable_tile = False
         self.annotated_mesh = annotated_mesh
 
     def generate_geometry(self):
@@ -72,6 +73,8 @@ class WorldObj:
         gl.glScalef(self.scale, self.scale, self.scale)
         gl.glRotatef(self.y_rot, 0, 1, 0)
         gl.glColor3f(*self.color)
+
+        annotated = annotated and self.on_driveable_tile
         if annotated and self.annotated_mesh is not None:
             self.annotated_mesh.render(annotated=annotated)
         else:

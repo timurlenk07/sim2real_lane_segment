@@ -151,7 +151,7 @@ def main(args, model_name: str, reproducible: bool, comet: bool, wandb: bool):
     )
     args.checkpoint_callback = model_checkpoint
 
-    data = SimulatorDataModule(dataPath=args.dataPath, augment=True, batch_size=64, num_workers=8)
+    data = SimulatorDataModule(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size, num_workers=8)
     model = RightLaneModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
 
     # Parse all trainer options available from the command line

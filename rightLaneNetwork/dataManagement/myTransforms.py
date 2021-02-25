@@ -21,9 +21,6 @@ class MyTransform:
 
     def __call__(self, img, label=None):
         if label is not None and len(label.shape) >= 2:
-            # Binarize label
-            label[label != 0] = 1
-
             augmented = self.transform(image=img, mask=label)
             img = augmented['image']
             label = augmented['mask'].squeeze().long()

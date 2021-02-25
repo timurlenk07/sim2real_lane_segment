@@ -6,8 +6,9 @@ torch~=1.7.1
 torchvision~=0.8.2
 Pillow~=7.2.0
 albumentations~=0.5.2
-pytorch-lightning~=1.1.8
+pytorch-lightning~=1.2.1
 scikit-image~=0.17.2
-matplotlib~=3.3.0
+matplotlib
 ray[tune,rllib]~=1.2.0
 labelme~=4.5.7
+python-dotenv

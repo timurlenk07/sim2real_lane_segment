@@ -1,10 +1,8 @@
 import os
 from argparse import ArgumentParser
-from collections import OrderedDict
 
-import pytorch_lightning as pl
 import torch
-from pytorch_lightning import seed_everything
+from pytorch_lightning import seed_everything, Trainer, LightningModule, LightningDataModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
@@ -17,7 +15,7 @@ from dataManagement.myTransforms import MyTransform
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
-class RightLaneDataModule(pl.LightningDataModule):
+class RightLaneDataModule(LightningDataModule):
     def __init__(self, *, dataPath=None, width=160, height=120, gray=False, augment=False, batch_size=1, num_workers=1):
         super().__init__(
             train_transforms=MyTransform(width=width, height=height, gray=gray, augment=augment),
@@ -65,21 +63,19 @@ class RightLaneDataModule(pl.LightningDataModule):
                           num_workers=self.num_workers)
 
 
-class RightLaneModule(pl.LightningModule):
-    def __init__(self, *, lr=1e-3, decay=1e-4, lrRatio=1e3):
+class RightLaneModule(LightningModule):
+    def __init__(self, lr=1e-3, decay=1e-4, lrRatio=1e3, num_cls=2):
         super().__init__()
+        self.save_hyperparameters('lr', 'decay', 'lrRatio')
 
         # Create network parts
         self.featureExtractor = FCDenseNet57Base()
-        self.classifier = FCDenseNet57Classifier(n_classes=2)
+        self.classifier = FCDenseNet57Classifier(n_classes=num_cls)
 
         # Training parameters
         self.lr = lr
         self.decay = decay
         self.lrRatio = lrRatio
-
-        # Save hyperparameters
-        self.save_hyperparameters('lr', 'decay', 'lrRatio')
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -110,7 +106,7 @@ class RightLaneModule(pl.LightningModule):
         train_acc = accuracy(labels_hat, y) * 100
 
         self.log('tr_loss', train_acc)
-        self.log('tr_acc', train_acc)
+        self.log('tr_acc', train_acc, prog_bar=True)
 
         return loss
 
@@ -120,10 +116,10 @@ class RightLaneModule(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         logs = self.summarize_evaluation_results(outputs)
         self.log('val_loss', logs['loss'])
-        self.log('val_acc', logs['acc'])
+        self.log('val_acc', logs['acc'], prog_bar=True, logger=True)
         self.log('val_dice', logs['dice'])
-        self.log('val_iou', logs['iou'])
-        self.log('step', self.current_epoch)
+        self.log('val_iou', logs['iou'], prog_bar=True, logger=True)
+        #self.log('step', self.current_epoch)
 
     def test_step(self, batch, batch_idx):
         return self.evaluate_batch(batch)
@@ -150,15 +146,13 @@ class RightLaneModule(pl.LightningModule):
         _, labels_hat = torch.max(outputs, 1)
 
         weight = x.shape[0]
-        output = OrderedDict({
+        return {
             'loss': loss * weight,
             'acc': accuracy(labels_hat, y) * weight,
             'dice': dice_score(outputs, y) * weight,
             'iou': iou(labels_hat, y) * weight,
             'weight': weight,
-        })
-
-        return output
+        }
 
     def summarize_evaluation_results(self, outputs):
         total_weight = sum(x['weight'] for x in outputs)
@@ -175,54 +169,51 @@ class RightLaneModule(pl.LightningModule):
         }
 
 
-def main(args, model_name: str, reproducible: bool, comet: bool):
+def main(args, model_name: str, reproducible: bool, comet: bool, wandb: bool):
     if reproducible:
         seed_everything(42)
         args.deterministic = True
         args.benchmark = True
 
     if comet:
-        comet_logger = pl.loggers.CometLogger(
+        from pytorch_lightning.loggers import CometLogger
+        comet_logger = CometLogger(
             api_key=os.environ.get('COMET_API_KEY'),
             workspace=os.environ.get('COMET_WORKSPACE'),  # Optional
             project_name=os.environ.get('COMET_PROJECT_NAME'),  # Optional
             experiment_name=model_name  # Optional
         )
         args.logger = comet_logger
+    if wandb:
+        from pytorch_lightning.loggers import WandbLogger
+        wandb_logger = WandbLogger(project=os.environ.get('WANDB_PROJECT_NAME'), log_model=True, sync_step=True)
+        args.logger = wandb_logger
 
     if args.default_root_dir is None:
         args.default_root_dir = 'results'
 
     # Save best model
     model_checkpoint = ModelCheckpoint(
-        filepath=os.path.join(args.default_root_dir, model_name + '.ckpt'),
+        filename=model_name + '_{epoch}',
         save_top_k=1,
-        verbose=False,
         monitor='val_iou',
         mode='max',
-        prefix=model_name + str(os.getpid())
     )
     args.checkpoint_callback = model_checkpoint
 
     data = RightLaneDataModule(dataPath=args.dataPath, augment=True, batch_size=64, num_workers=8)
-    model = RightLaneModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay)
+    model = RightLaneModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
 
     # Parse all trainer options available from the command line
-    trainer = pl.Trainer.from_argparse_args(args)
-
+    trainer = Trainer.from_argparse_args(args)
     trainer.fit(model, datamodule=data)
 
     # Reload best model
-    model = RightLaneModule.load_from_checkpoint(model_checkpoint.kth_best_model_path, dataPath=args.dataPath)
+    model = RightLaneModule.load_from_checkpoint(model_checkpoint.best_model_path, dataPath=args.dataPath, num_cls=4)
 
-    # Save checkpoint and weights
-    ckpt_path = os.path.join(args.default_root_dir, model_name + '.ckpt')
-    weights_path = os.path.join(args.default_root_dir, model_name + '_weights.pth')
-    trainer.save_checkpoint(ckpt_path)
-    torch.save(model.state_dict(), weights_path)
+    # Upload weights
     if comet:
-        comet_logger.experiment.log_model(model_name + '_ckpt', ckpt_path)
-        comet_logger.experiment.log_model(model_name + '_weights', weights_path)
+        comet_logger.experiment.log_model(model_name + '_weights', model_checkpoint.best_model_path)
 
     # Perform testing
     trainer.test(model, datamodule=data)
@@ -235,6 +226,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataPath', type=str, help="Path of database root")
 
     parser.add_argument('--comet', action='store_true', help='Define flag in order to use Comet.ml as logger.')
+    parser.add_argument('--wandb', action='store_true', help='Define flag in order to use WandB as logger.')
     parser.add_argument('--model_name', type=str, default='baseline',
                         help='Model identifier for logging and checkpoints.')
     parser.add_argument('--reproducible', action='store_true',
@@ -245,8 +237,10 @@ if __name__ == '__main__':
     parser = RightLaneModule.add_model_specific_args(parser)
 
     # Adds all the trainer options as default arguments (like max_epochs)
-    parser = pl.Trainer.add_argparse_args(parser)
+    parser = Trainer.add_argparse_args(parser)
 
     args = parser.parse_args()
 
-    main(args, model_name=args.model_name, reproducible=args.reproducible, comet=args.comet)
+    from dotenv import load_dotenv
+    load_dotenv()
+    main(args, model_name=args.model_name, reproducible=args.reproducible, comet=args.comet, wandb=args.wandb)

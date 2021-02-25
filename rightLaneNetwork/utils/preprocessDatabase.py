@@ -3,10 +3,10 @@ import glob
 import logging
 import os
 import shutil
-from itertools import zip_longest
 from random import shuffle, seed
 
 import cv2
+from tqdm import tqdm
 
 
 def videos2images(directory, transform=None, haveLabels=True, deleteProcessed=False):
@@ -37,7 +37,7 @@ def videos2images(directory, transform=None, haveLabels=True, deleteProcessed=Fa
 
     img_counter = 0
     # Iterate and postprocess every recording
-    for input_vid, label_vid in zip_longest(input_vids, label_vids):
+    for input_vid, label_vid in tqdm(zip(input_vids, label_vids)):
         assert label_vid is not None if haveLabels else True
 
         # Open recordings...

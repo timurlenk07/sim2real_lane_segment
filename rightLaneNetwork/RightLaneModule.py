@@ -2,65 +2,15 @@ import os
 from argparse import ArgumentParser
 
 import torch
-from pytorch_lightning import seed_everything, Trainer, LightningModule, LightningDataModule
+from pytorch_lightning import seed_everything, Trainer, LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader
 
-from dataManagement.myDatasets import RightLaneDataset
-from dataManagement.myTransforms import MyTransform
+from dataManagement.dataModules import SimulatorDataModule
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
-
-
-class RightLaneDataModule(LightningDataModule):
-    def __init__(self, *, dataPath=None, width=160, height=120, gray=False, augment=False, batch_size=1, num_workers=1):
-        super().__init__(
-            train_transforms=MyTransform(width=width, height=height, gray=gray, augment=augment),
-            val_transforms=MyTransform(width=width, height=height, gray=gray, augment=False),
-            test_transforms=MyTransform(width=width, height=height, gray=gray, augment=False),
-            dims=(width, height, 1 if gray else 3)
-        )
-        self.dataSets = dict()
-        self.dataPath = dataPath if dataPath is not None else os.getcwd()
-        self.augment = augment
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-
-    @classmethod
-    def add_argparse_args(cls, parent_parser: ArgumentParser) -> ArgumentParser:
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        dmGroup = parser.add_argument_group('DataModule', 'Parameters defining data handling')
-
-        dmGroup.add_argument('--gray', action='store_true', help="Convert input image to grayscale")
-        dmGroup.add_argument('--width', type=int, default=160, help="Resize width of input images of the network")
-        dmGroup.add_argument('--height', type=int, default=120, help="Resize height of input images of the network")
-        dmGroup.add_argument('--augment', action='store_true', help="Use data augmentation on training set")
-        dmGroup.add_argument('-b', '--batch_size', type=int, default=32, help="Input batch size")
-
-        return parser
-
-    def setup(self, stage=None):
-        self.dataSets['train'] = RightLaneDataset(os.path.join(self.dataPath, 'train'), self.train_transforms,
-                                                  haveLabels=True)
-        self.dataSets['valid'] = RightLaneDataset(os.path.join(self.dataPath, 'valid'), self.val_transforms,
-                                                  haveLabels=True)
-        self.dataSets['test'] = RightLaneDataset(os.path.join(self.dataPath, 'test'), self.test_transforms,
-                                                 haveLabels=True)
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.dataSets['train'], batch_size=self.batch_size, shuffle=True,
-                          num_workers=self.num_workers)
-
-    def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.dataSets['valid'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
-
-    def test_dataloader(self) -> DataLoader:
-        return DataLoader(self.dataSets['test'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
 
 
 class RightLaneModule(LightningModule):
@@ -119,7 +69,7 @@ class RightLaneModule(LightningModule):
         self.log('val_acc', logs['acc'], prog_bar=True, logger=True)
         self.log('val_dice', logs['dice'])
         self.log('val_iou', logs['iou'], prog_bar=True, logger=True)
-        #self.log('step', self.current_epoch)
+        # self.log('step', self.current_epoch)
 
     def test_step(self, batch, batch_idx):
         return self.evaluate_batch(batch)
@@ -201,7 +151,7 @@ def main(args, model_name: str, reproducible: bool, comet: bool, wandb: bool):
     )
     args.checkpoint_callback = model_checkpoint
 
-    data = RightLaneDataModule(dataPath=args.dataPath, augment=True, batch_size=64, num_workers=8)
+    data = SimulatorDataModule(dataPath=args.dataPath, augment=True, batch_size=64, num_workers=8)
     model = RightLaneModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
 
     # Parse all trainer options available from the command line
@@ -233,7 +183,7 @@ if __name__ == '__main__':
                         help="Set seed to 42 and deterministic and benchmark to True.")
 
     # Add model arguments to parser
-    parser = RightLaneDataModule.add_argparse_args(parser)
+    parser = SimulatorDataModule.add_argparse_args(parser)
     parser = RightLaneModule.add_model_specific_args(parser)
 
     # Adds all the trainer options as default arguments (like max_epochs)
@@ -242,5 +192,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     from dotenv import load_dotenv
+
     load_dotenv()
     main(args, model_name=args.model_name, reproducible=args.reproducible, comet=args.comet, wandb=args.wandb)

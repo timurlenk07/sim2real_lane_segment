@@ -105,7 +105,7 @@ class RightLaneModule(LightningModule):
         _, labels_hat = torch.max(outputs, 1)
         train_acc = accuracy(labels_hat, y) * 100
 
-        self.log('tr_loss', train_acc)
+        self.log('tr_loss', loss)
         self.log('tr_acc', train_acc, prog_bar=True)
 
         return loss

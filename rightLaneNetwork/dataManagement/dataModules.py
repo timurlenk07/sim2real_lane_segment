@@ -47,15 +47,15 @@ class SimulatorDataModule(BaseDataModule):
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(self.dataSets['train'], batch_size=self.batch_size, shuffle=True,
-                          num_workers=self.num_workers)
+                          num_workers=self.num_workers, pin_memory=True)
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(self.dataSets['valid'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
+                          num_workers=self.num_workers, pin_memory=True)
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(self.dataSets['test'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
+                          num_workers=self.num_workers, pin_memory=True)
 
 
 class TwoDomainDM(BaseDataModule):
@@ -79,14 +79,14 @@ class TwoDomainDM(BaseDataModule):
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(STSet, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(STSet, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
     def val_dataloader(self) -> DataLoader:
         return self.test_dataloader()
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(self.dataSets['targetTest'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
+                          num_workers=self.num_workers, pin_memory=True)
 
 
 class TwoDomainMMEDM(BaseDataModule):
@@ -112,11 +112,11 @@ class TwoDomainMMEDM(BaseDataModule):
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(parallelDataset, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(parallelDataset, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
     def val_dataloader(self) -> DataLoader:
         return self.test_dataloader()
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(self.dataSets['targetTest'], batch_size=self.batch_size, shuffle=False,
-                          num_workers=self.num_workers)
+                          num_workers=self.num_workers, pin_memory=True)

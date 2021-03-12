@@ -1,12 +1,10 @@
-from collections import OrderedDict
-
 import torch
 from torch.nn.functional import cross_entropy
 from torch.optim import SGD, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from models.FCDenseNet.tiramisu import grad_reverse
-from .TrainingBase import TrainingBase
+from .TrainingBase import TrainingBase, getClassWeight
 
 
 def adentropy(output, lamda=1.0):
@@ -35,9 +33,6 @@ class MMETrainingModule(TrainingBase):
         if optimizer_idx == 1:  # We are labelled optimizer -> minimize entropy
             outputs = self.featureExtractor(x_labelled)
             outputs = self.classifier(outputs)
-            loss = cross_entropy(outputs, labels)
+            loss = cross_entropy(outputs, labels, weight=getClassWeight(labels, self.num_cls).to(self.device))
 
-        output = OrderedDict({
-            'loss': loss
-        })
-        return output
+        return loss

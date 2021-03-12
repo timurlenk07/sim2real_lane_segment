@@ -4,7 +4,7 @@ from torch.nn.functional import cross_entropy
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from .TrainingBase import TrainingBase
+from .TrainingBase import TrainingBase, getClassWeight
 
 
 class SimpleTrainModule(TrainingBase):
@@ -13,7 +13,7 @@ class SimpleTrainModule(TrainingBase):
 
         # Forward propagation, loss calculation
         outputs = self.forward(x)
-        loss = cross_entropy(outputs, y)
+        loss = cross_entropy(outputs, y, weight=getClassWeight(y, self.num_cls).to(self.device))
 
         # Accuracy calculation
         _, labels_hat = torch.max(outputs, 1)

@@ -8,6 +8,20 @@ from torch.nn.functional import cross_entropy
 from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
 
 
+def getClassWeight(targets, maxClasses: int = None):
+    elements, counts = torch.unique(targets, sorted=True, return_counts=True)
+    if maxClasses:
+        assert maxClasses > int(max(elements)), f"Found more label classes than given maxClasses={maxClasses}"
+    else:
+        maxClasses = int(max(elements)) + 1
+
+    countPerClass = torch.tensor([0 for _ in range(maxClasses)], dtype=torch.float)
+    for idx, count in zip(elements, counts):
+        countPerClass[idx] = count
+
+    return torch.reciprocal(countPerClass)
+
+
 class TrainingBase(LightningModule):
     def __init__(self, lr=1e-3, decay=1e-4, lrRatio=1e3, num_cls=2):
         super().__init__()
@@ -21,6 +35,8 @@ class TrainingBase(LightningModule):
         self.lr = lr
         self.decay = decay
         self.lrRatio = lrRatio
+
+        self.num_cls = num_cls
 
     @staticmethod
     def add_model_specific_args(parent_parser):

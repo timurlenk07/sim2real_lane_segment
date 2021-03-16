@@ -5,9 +5,8 @@ import cv2
 import torch
 from tqdm import trange
 
-from RightLaneMMEModule import RightLaneMMEModule
-from RightLaneModule import RightLaneModule
-from RightLaneSTModule import RightLaneSTModule
+from trainingModules.SimpleTrain import SimpleTrainModule
+from trainingModules.MMETrainingModule import MMETrainingModule
 from dataManagement.myTransforms import MyTransform
 
 haveCuda = torch.cuda.is_available()
@@ -18,8 +17,8 @@ def predictVideo(inputVideo, outputVideo, model, transform):
 
     fourcc = cv2.VideoWriter_fourcc(*'FFV1')
     fps = cap_in.get(cv2.CAP_PROP_FPS)
-    framesize = (model.width, model.height)
-    isColor = not model.grayscale
+    framesize = (160, 120)
+    isColor = True
     w_out = cv2.VideoWriter(outputVideo, fourcc, fps, framesize, isColor)
 
     try:
@@ -38,7 +37,9 @@ def predictVideo(inputVideo, outputVideo, model, transform):
             pred = pred.cpu().byte().numpy().squeeze()
 
             frame_out = cv2.resize(frame, framesize, cv2.INTER_LANCZOS4)
-            frame_out[pred > 0.5] = (0, 0, 255)
+            frame_out[pred == 1] = (0, 255, 0)  # Right lane
+            frame_out[pred == 2] = (255, 0, 0)  # Left lane
+            frame_out[pred == 3] = (0, 0, 255)  # Obstacles
 
             w_out.write(frame_out)
     finally:
@@ -49,11 +50,9 @@ def predictVideo(inputVideo, outputVideo, model, transform):
 def main(videoIns, videoOuts, module_type, ckpt_path):
     # Parse model
     if module_type == 'MME':
-        model = RightLaneMMEModule.load_from_checkpoint(checkpoint_path=ckpt_path)
-    elif module_type in ['baseline', 'hm', 'CycleGAN']:
-        model = RightLaneModule.load_from_checkpoint(checkpoint_path=ckpt_path)
-    elif module_type == 'sandt':
-        model = RightLaneSTModule.load_from_checkpoint(checkpoint_path=ckpt_path)
+        model = MMETrainingModule.load_from_checkpoint(checkpoint_path=ckpt_path, num_cls=4)
+    elif module_type in ['baseline', 'sandt', 'hm', 'CycleGAN']:
+        model = SimpleTrainModule.load_from_checkpoint(checkpoint_path=ckpt_path, num_cls=4)
     else:
         raise RuntimeError(f"Cannot recognize module type {module_type}")
 
@@ -62,7 +61,7 @@ def main(videoIns, videoOuts, module_type, ckpt_path):
     model.eval()
 
     # Get transform function
-    transform = MyTransform(width=model.width, height=model.height, gray=model.grayscale, augment=False)
+    transform = MyTransform(augment=False)
 
     for videoIn, videoOut in zip(videoIns, videoOuts):
         if os.path.exists(videoOut):

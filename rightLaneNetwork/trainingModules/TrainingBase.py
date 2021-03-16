@@ -5,7 +5,8 @@ from pytorch_lightning import LightningModule
 from pytorch_lightning.metrics.functional import accuracy, dice_score, iou
 from torch.nn.functional import cross_entropy
 
-from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier
+from models.FCDenseNet.tiramisu import FCDenseNet57Base, FCDenseNet57Classifier, FCDenseNet67Base, \
+    FCDenseNet67Classifier
 
 
 def getClassWeight(targets, maxClasses: int = None):
@@ -28,8 +29,8 @@ class TrainingBase(LightningModule):
         self.save_hyperparameters('lr', 'decay', 'lrRatio')
 
         # Create network parts
-        self.featureExtractor = FCDenseNet57Base()
-        self.classifier = FCDenseNet57Classifier(n_classes=num_cls)
+        self.featureExtractor = FCDenseNet67Base()
+        self.classifier = FCDenseNet67Classifier(n_classes=num_cls)
 
         # Training parameters
         self.lr = lr

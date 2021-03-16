@@ -180,3 +180,15 @@ def FCDenseNet57Base():
 
 def FCDenseNet57Classifier(n_classes):
     return FCDenseNetClassifier(FCDenseNet57Base().getFeatureChannels(), n_classes)
+
+
+def FCDenseNet67Base():
+    return FCDenseNetFeatureExtractor(
+        in_channels=3, down_blocks=(5, 5, 5, 5, 5),
+        up_blocks=(5, 5, 5, 5, 5), bottleneck_layers=5,
+        growth_rate=16, out_chans_first_conv=48
+    )
+
+
+def FCDenseNet67Classifier(n_classes):
+    return FCDenseNetClassifier(FCDenseNet67Base().getFeatureChannels(), n_classes)

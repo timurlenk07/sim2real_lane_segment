@@ -9,7 +9,8 @@ from .myTransforms import MyTransform
 
 
 class BaseDataModule(LightningDataModule):
-    def __init__(self, *, dataPath=None, width=160, height=120, gray=False, augment=False, batch_size=1, num_workers=1):
+    def __init__(self, *, dataPath=None, width=160, height=120, gray=False, augment=False, batch_size=1, num_workers=1,
+                 loadIntoMemory=False):
         super().__init__(
             train_transforms=MyTransform(width=width, height=height, gray=gray, augment=augment),
             val_transforms=MyTransform(width=width, height=height, gray=gray, augment=False),
@@ -21,6 +22,7 @@ class BaseDataModule(LightningDataModule):
         self.augment = augment
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.loadIntoMemory = loadIntoMemory  # Seems it does much harm and no good
 
     @classmethod
     def add_argparse_args(cls, parent_parser: ArgumentParser) -> ArgumentParser:
@@ -32,6 +34,7 @@ class BaseDataModule(LightningDataModule):
         dmGroup.add_argument('--height', type=int, default=120, help="Resize height of input images of the network")
         dmGroup.add_argument('--augment', action='store_true', help="Use data augmentation on training set")
         dmGroup.add_argument('-b', '--batch_size', type=int, default=32, help="Input batch size")
+        dmGroup.add_argument('--load2memory', action='store_true', help="Pre-fetch data into memory first")
 
         return parser
 
@@ -39,9 +42,9 @@ class BaseDataModule(LightningDataModule):
 class SimulatorDataModule(BaseDataModule):
     def setup(self, stage=None):
         self.dataSets['train'] = RightLaneDataset(os.path.join(self.dataPath, 'train'), self.train_transforms,
-                                                  haveLabels=True)
+                                                  haveLabels=True, loadIntoMemory=self.loadIntoMemory)
         self.dataSets['valid'] = RightLaneDataset(os.path.join(self.dataPath, 'valid'), self.val_transforms,
-                                                  haveLabels=True)
+                                                  haveLabels=True, loadIntoMemory=self.loadIntoMemory)
         self.dataSets['test'] = RightLaneDataset(os.path.join(self.dataPath, 'test'), self.test_transforms,
                                                  haveLabels=True)
 
@@ -61,11 +64,10 @@ class SimulatorDataModule(BaseDataModule):
 class TwoDomainDM(BaseDataModule):
     def setup(self, stage=None):
         self.dataSets['source'] = RightLaneDataset(os.path.join(self.dataPath, 'source'), self.train_transforms,
-                                                   haveLabels=True)
+                                                   haveLabels=True, loadIntoMemory=self.loadIntoMemory)
         self.dataSets['targetTrain'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'),
-                                                        self.train_transforms, haveLabels=True)
-        self.dataSets['targetUnlabelled'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'unlabelled'),
-                                                             self.train_transforms, haveLabels=False)
+                                                        self.train_transforms, haveLabels=True,
+                                                        loadIntoMemory=self.loadIntoMemory)
         self.dataSets['targetTest'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'),
                                                        self.test_transforms, haveLabels=True)
 
@@ -79,7 +81,8 @@ class TwoDomainDM(BaseDataModule):
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(STSet, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(STSet, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers,
+                          pin_memory=True)
 
     def val_dataloader(self) -> DataLoader:
         return self.test_dataloader()
@@ -92,11 +95,13 @@ class TwoDomainDM(BaseDataModule):
 class TwoDomainMMEDM(BaseDataModule):
     def setup(self, stage=None):
         self.dataSets['source'] = RightLaneDataset(os.path.join(self.dataPath, 'source'), self.train_transforms,
-                                                   haveLabels=True)
+                                                   haveLabels=True, loadIntoMemory=self.loadIntoMemory)
         self.dataSets['targetTrain'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'train'),
-                                                        self.train_transforms, haveLabels=True)
+                                                        self.train_transforms, haveLabels=True,
+                                                        loadIntoMemory=self.loadIntoMemory)
         self.dataSets['targetUnlabelled'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'unlabelled'),
-                                                             self.train_transforms, haveLabels=False)
+                                                             self.train_transforms,
+                                                             haveLabels=False, loadIntoMemory=self.loadIntoMemory)
         self.dataSets['targetTest'] = RightLaneDataset(os.path.join(self.dataPath, 'target', 'test'),
                                                        self.test_transforms, haveLabels=True)
 
@@ -112,7 +117,8 @@ class TwoDomainMMEDM(BaseDataModule):
         weights = [*source_weights, *target_weights]
 
         sampler = WeightedRandomSampler(weights=weights, num_samples=len(STSet), replacement=True)
-        return DataLoader(parallelDataset, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(parallelDataset, sampler=sampler, batch_size=self.batch_size, num_workers=self.num_workers,
+                          pin_memory=True)
 
     def val_dataloader(self) -> DataLoader:
         return self.test_dataloader()

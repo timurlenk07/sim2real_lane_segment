@@ -45,13 +45,15 @@ def main(args, train_type: str, model_name: str, reproducible: bool, comet: bool
 
     if train_type == 'sim':
         data = SimulatorDataModule(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size,
-                                   num_workers=8)
+                                   num_workers=8, loadIntoMemory=args.load2memory)
         model = SimpleTrainModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
     elif train_type == 'st':
-        data = TwoDomainDM(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size, num_workers=8)
+        data = TwoDomainDM(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size, num_workers=8,
+                           loadIntoMemory=args.load2memory)
         model = SimpleTrainModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
     elif train_type == 'mme':
-        data = TwoDomainMMEDM(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size, num_workers=8)
+        data = TwoDomainMMEDM(dataPath=args.dataPath, augment=args.augment, batch_size=args.batch_size, num_workers=8,
+                              loadIntoMemory=args.load2memory)
         model = MMETrainingModule(lr=args.learningRate, lrRatio=args.lrRatio, decay=args.decay, num_cls=4)
         model.load_state_dict(torch.load(args.pretrained_path))
     else:
@@ -76,7 +78,7 @@ def main(args, train_type: str, model_name: str, reproducible: bool, comet: bool
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('--trainType', choices=['sim', 'st', 'mme'], help="Type of training method")
+    parser.add_argument('--trainType', choices=['sim', 'st', 'mme'], help="Type of training method", required=True)
     parser.add_argument('--dataPath', type=str, help="Path of database root", required=True)
 
     # MME training needs pretrained weights

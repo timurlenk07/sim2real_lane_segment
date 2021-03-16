@@ -8,7 +8,8 @@ from torch.utils.data import Dataset
 
 
 class RightLaneDataset(Dataset):
-    def __init__(self, dataPath, transform=None, haveLabels=True):
+    def __init__(self, dataPath, transform=None, haveLabels=True, *,
+                 loadIntoMemory=False, onLoadTransform=None):
         super().__init__()
 
         self.haveLabels = haveLabels
@@ -22,24 +23,36 @@ class RightLaneDataset(Dataset):
                 or (haveLabels and not os.path.exists(self._target_dir)):
             raise ValueError(f"Directory structure under {dataPath} is not complete!")
 
-        self._data_cnt = len(glob.glob(os.path.join(self._input_dir, '*.png')))
-        if haveLabels and self._data_cnt != len(glob.glob(os.path.join(self._target_dir, '*.png'))):
-            raise FileNotFoundError(f"Different input and target count encountered at {dataPath}!")
-
+        self._dataPaths = {'input': glob.glob(os.path.join(self._input_dir, '*.png'))}
+        self._data_cnt = len(self._dataPaths['input'])
         if self._data_cnt == 0:
             logging.warning(f"No data found at {dataPath}!")
 
+        if haveLabels:
+            self._dataPaths['target'] = glob.glob(os.path.join(self._target_dir, '*.png'))
+            if self._data_cnt != len(self._dataPaths['target']):
+                raise FileNotFoundError(f"Different input and target count encountered at {dataPath}!")
+
         self.transform = transform
+
+        self._data = None
+        if loadIntoMemory:
+            self._preloadData(onLoadTransform)
 
     def __len__(self):
         return self._data_cnt
 
     def __getitem__(self, index):
-        filename = f'{index:06d}.png'
-        x = cv2.imread(os.path.join(self._input_dir, filename), cv2.IMREAD_COLOR)
-        if self.haveLabels:
-            y = cv2.imread(os.path.join(self._target_dir, filename), cv2.IMREAD_GRAYSCALE)
+        if self._data is not None:
+            x = self._data['input'][index]
+            if self.haveLabels:
+                y = self._data['target'][index]
         else:
+            x = cv2.imread(self._dataPaths['input'][index], cv2.IMREAD_COLOR)
+            if self.haveLabels:
+                y = cv2.imread(self._dataPaths['target'][index], cv2.IMREAD_GRAYSCALE)
+
+        if not self.haveLabels:
             y = torch.empty(0, dtype=torch.long)
 
         if self.transform is not None:
@@ -48,15 +61,19 @@ class RightLaneDataset(Dataset):
         return x, y
 
     def __setitem__(self, index, value):
-        filename = f'{index:06d}.png'
         if self.haveLabels:
             img, label = value
         else:
             img = value
 
-        cv2.imwrite(os.path.join(self._input_dir, filename), img)
+        cv2.imwrite(self._dataPaths['input'][index], img)
         if self.haveLabels:
-            cv2.imwrite(os.path.join(self._target_dir, filename), label)
+            cv2.imwrite(self._dataPaths['target'][index], label)
+
+    def _preloadData(self, onLoadTransform):
+        self._data = {'input': [cv2.imread(p, cv2.IMREAD_COLOR) for p in self._dataPaths['input']]}
+        if self.haveLabels:
+            self._data['target'] = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self._dataPaths['target']]
 
 
 class ParallelDataset(Dataset):
